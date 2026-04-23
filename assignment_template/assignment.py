@@ -3,157 +3,135 @@ import simutils as su
 import sat_lib as sl
 import orbit_lib as ol
 import simulator as sim
+import plotter as pl
+import math
 
-# --- TLE epoch ---
-epoch = 26097.16668981  # from your TLE
+class ScenarioAssignment(sim.BaseScenario):
+    def __init__(self):
+        self.RK4_x = None
+        self.orbit_energy_plot = None
+        self.m = None
+        self.vi = None
+        self.ri = None
+        self.verlet_x_past = None
+        self.verlet_x = None
+        self.leapfrog_x = None
+        self.q = None
+        self.q_E = None
+        self.euler_x = None
+        self.pos_plot = None
+        self.theta_E = None
 
-JD0 = ol.epoch_to_julian_date(epoch)
-theta0 = ol.sidereal_angle(JD0)
-
-RE = 6378.1363;
-my = 398604.415;
-
-r0 = np.array([RE + 800, 0, 0]);
-v0 = np.array([0, 0, np.sqrt(my / np.linalg.norm(r0))]);
-
-x0 = np.hstack((r0, v0))  
-
-r = RE + 400;
-t_0 = 0;
-t_step = 1;
-
-T = ((2*np.pi)/np.sqrt(my))*r**(3/2);
-
-t_e = T;
-speed_factor = 100;
-anim_dt = 0.04;
-scale_factor = 1000;
-
-theta = 0;
-omega_E = 7.292115e-5;
-
-r_i = r*(np.array([np.cos(theta), 
-                  np.sin(theta), 
-                  0]));
-
-theta_dot = 2*np.pi/T;
-
-def f(t, x):
-    r = x[:3]
-    v = x[3:]
-    
-    r_norm = np.linalg.norm(r)
-    a = -my * r / r_norm**3
-    
-    return np.hstack((v, a))
-
-class ScenarioAssignment3(sim.BaseScenario):
     def init(self, t):
 
-        self.ri = np.array([7378, 0, 0]) # Satellite position
-        self.vi = np.array([0, 0, 9]) # Satellite velocity
+        RE = 6378.1363                  #[km]   Earth radius
+        r31 = RE + 800                  #[km]   Radius used in assignment 3.1
+        v31 = np.sqrt(ol.mu/(RE + 800)) #[km/s] Velocity used in assignment 3.1
+        r32 = 7378                      #[km]   Radius used in assignment 3.2
+        r32 = 9                         #[km/s] Velocity used in assignment 3.2
 
+        # Satellite variables
+        self.q = su.Quaternion()        # Satellite rotation
+        self.ri = np.array([r31, 0, 0]) # Satellite position NB! Check if correct per assignment
+        self.vi = np.array([0, 0, v31]) # Satellite velocity NB! Check if correct per assignment
+
+        self.m = 8000 # Mass of the satellite [kg]
+
+        v_temp = math.sqrt(ol.mu / (ol.R_E + 800))
+
+        # Position from each integration method
+        self.euler_x = np.concatenate([[ol.R_E + 800, 0, 0],[0, v_temp, 0]])
+        self.leapfrog_x = np.concatenate([[ol.R_E + 800, 0, 0],[0, v_temp, 0]])
+
+        self.verlet_x_past = None
+        self.verlet_x = np.concatenate([[ol.R_E + 800, 0, 0],[0, v_temp, 0]])
+
+        # Used for Assignment 3.2
         self.RK4_x = np.concatenate([self.ri, self.vi])
 
-        self.m = 8000
-        self.x = np.hstack((r0, v0))  # x0
+        # Earth rotation variables
+        self.theta_E = 0 # Offset to the rotation
+        temp = ol.polar2xyz(1, self.theta_E / 2) # Normalized XY from q_E
+        self.q_E = su.Quaternion([temp[0], 0, 0, temp[1]])
+        #self.q_E = su.Quaternion()
 
-        a0 = f(t, self.x)[3:]
-        r1 = r0 + v0 * t_step + 0.5 * a0 * t_step**2
-        v1 = v0  
+        # Data logging variables
+        #self.pos_plot = np.concatenate(([t], self.ri)) # Initialize the plot data
 
-        self.x_prev = self.x.copy()              
-        self.x = np.hstack((r1, v1))
+        # Convert all energies to array
+        #self.orbit_energy_plot = np.concatenate(([t], [ol.get_orbit_energy_state(self.euler_x, self.m), ol.get_orbit_energy_state(self.leapfrog_x, self.m), ol.get_orbit_energy_state(self.verlet_x, self.m)]))
 
-        # Visualization
-        self.q = su.Quaternion()
-        self.q_E = su.Quaternion()
-        self.r_ecef = self.x[:3]
+
 
     def update(self, t, dt):
-        # --- NUMERICAL STEP ---
-        #self.x = su.step_euler(dt, t, self.x, f)
-        #self.x = su.step_leapfrog(dt, t, self.x, f)
-        #self.x = su.step_verlet(dt, t, self.x, self.x_prev, f)
 
-        # Assignment 3.2 (credit til Askar for mega hjelp)
+        # Next step
+        self.euler_x = su.step_euler(dt, t, self.euler_x, su.two_body)
+        self.leapfrog_x = su.step_leapfrog(dt, t, self.leapfrog_x, su.two_body)
+        self.verlet_x, self.verlet_x_past = su.step_verlet(dt, t, self.verlet_x, self.verlet_x_past, su.two_body), self.verlet_x
+        self.ri = self.verlet_x[:3]  # Get position vector NB! Check that numerical solver is correct
 
+        #Assignment 3.2
         k1 = 10e-4
         k2 = 10e-4
-        ei = ol.get_orbit_eccentricity_vector_state(self.RK4_x, my)
+        ei = ol.get_orbit_eccentricity_vector_state(self.RK4_x)
         e = np.linalg.norm(ei)
 
         cos_theta = np.dot(ei, self.RK4_x[:3]) / (e * np.linalg.norm(self.RK4_x[:3]))
-        ra = ol.get_orbit_apoapsis(self.RK4_x, e, my)
-        rp = ol.get_orbit_periapsis(self.RK4_x, e, my)
+        ra = ol.get_orbit_apoapsis(self.RK4_x, e)
+        rp = ol.get_orbit_periapsis(self.RK4_x, e)
         rc = ol.R_E + 1500
-        
-        T = (k1 * (rc-ra)) if cos_theta > 0.9 else (k2 * (rc-rp)) if cos_theta < -0.9 else 0
-        
+
+        T = (k1 * (rc - ra)) if cos_theta > 0.9 else (k2 * (rc - rp)) if cos_theta < -0.9 else 0
+
         ae = (T * self.RK4_x[3:] / np.linalg.norm(self.RK4_x[3:])) / self.m
 
-        self.RK4_x = su.step_RK4(dt, t, self.RK4_x, su.two_body,ae)
-        self.ri = self.RK4_x[:3]
-        self.vi = self.RK4_x[3:]
+        self.RK4_x = su.step_RK4(dt, t, self.RK4_x, su.two_body, ae=ae)
+        #self.ri = self.RK4_x[:3]  # Get position vector
 
-        # Earth rotation
-        theta_E = ol.earth_rotation_angle(theta0, t)
+        # Calculate earth's rotation from time step
+        self.theta_E += dt * ol.w_E
+        temp = ol.polar2xyz(1, self.theta_E / 2) # Normalized XY from q_E
+        self.q_E = su.Quaternion([temp[0], 0, 0, temp[1]])
 
-        R_E = np.array([
-            [np.cos(theta_E),  np.sin(theta_E), 0],
-            [-np.sin(theta_E), np.cos(theta_E), 0],
-            [0,                0,               1]
-        ])
-
-
-        #r_i = self.x[:3]
-        #self.r_ecef = R_E @ r_i
-
-        self.q_E = su.Quaternion([
-            np.cos(theta_E / 2),
-            0,
-            0,
-            np.sin(theta_E / 2)
-        ])
+        # Log orbit data
+        #self.pos_plot = np.vstack((self.pos_plot, np.concatenate(([t], self.ri))))
+        #self.orbit_energy_plot = np.vstack((self.orbit_energy_plot, np.concatenate(([t], [ol.get_orbit_energy_state(self.euler_x, self.m), ol.get_orbit_energy_state(self.leapfrog_x, self.m), ol.get_orbit_energy_state(self.verlet_x, self.m)]))))
 
     def get(self):
         return [
             ['satellite', self.ri, self.q],
+            ['body_frame', self.ri, self.q],
             ['earth', np.zeros(3), self.q_E],
             ['ECEF frame', np.zeros(3), self.q_E],
-            ['ECI frame', np.zeros(3), su.Quaternion()]
-        ]
+            ['ECI frame', np.zeros(3), su.Quaternion()]]
 
-    def post_process(self, t, dt):
-        r = self.x[:3]
-        point = np.array([t, r[0], r[1], r[2]])
+    #def post_process(self, t, dt):
+        # Plot orbit of satellite
+        file = su.log_pos("assignment3_position", self.pos_plot)
+        self.pos_plot = None # Clear the data after its saved
+        pl.line_plot(file)
 
-        if not hasattr(self, "pos_plot"):
-            self.pos_plot = np.array([point])
-        else:
-            self.pos_plot = np.vstack((self.pos_plot, point))
-
-        if t >= 20000 - dt:
-            su.log_pos('assignment3_position', self.pos_plot)
+        file = su.log_pos("assignment3_energy", self.orbit_energy_plot)
+        self.orbit_energy_plot = None  # Clear the data after its saved
+        pl.line_plot(file, labels=["Euler", "Leapfrog", "Verlet"])
 
 def main():
 
-    
+
 
     sim_config = {
         't_0': 0,
-        't_e': 53000,
-        't_step': 100,
-        'speed_factor': 1,
-        'anim_dt': 1/25,
+        't_e': 20000,
+        't_step': 10,
+        'speed_factor': 100,
+        'anim_dt': 0.04,
         'scale_factor': 1000,
         'visualise': True
     }
 
-    scenario = ScenarioAssignment3()
+    scenario = ScenarioAssignment()
     sim.create_and_start_simulation(sim_config, scenario)
-
-
 
 if __name__ == "__main__":
     main()

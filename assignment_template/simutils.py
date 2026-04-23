@@ -4,6 +4,7 @@ from vispy.scene import MatrixTransform as Mat4
 from vispy.util.quaternion import Quaternion as Quat
 
 import orbit_lib as ol
+import assignment as assig
 
 class Error(Exception):
     pass
@@ -182,41 +183,105 @@ def rotscaleloc_to_vispy(pos=None,quat=None,Rot=None,Eul=None,scale=None):
 def H_to_Rp(H):
     return H.matrix[:3,:3].T,H.matrix[-1][:3]
 
-def log_pos(name,pos):
-    file_name = 'data/'+name+'_'+dt.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')+'.txt'
+def log_pos(name,pos,path='data/'):
+    #file_name = path + name + '_' + dt.datetime.now().strftime('%Y-%m-%d_%H:%M:%S') + '.txt'
+    file_name = path + name + '.txt'
+
     print("logged: "+file_name)
+
+    open(file_name, 'a').close()
     np.savetxt(file_name,pos)
 
-#---ASSIGNMENT 3---
+    return file_name
 
+###################################
+# Assignment 3 | Algorithms       #
+###################################
+
+# f(t, x)
+def two_body(t, x, ae: np.ndarray=None, u=ol.mu): 
+    """
+    Compute the time derivative of the state vector for the classical two-body problem.
+
+    The state vector x contains both the position and velocity vectors,
+    formatted as: [rx, ry, rz, vx, vy, vz].
+
+    :param t: Current time [s]
+    :param x: State vector containing both position vector and velocity vector [km | km/s]
+    :param ae: External acceleration vector (default: 0) [km/s**2]
+    :param u: Standard gravitational parameter (default: Earth's μ) [km**3/s**2]
+    :return: State vector with the time derivative of x [km/s | km/s**2]
+    """
+    ri = x[:3] 
+    vi = x[3:] 
+
+    r = np.linalg.norm(ri)
+    ai = -u/r**3 * ri + (np.zeros(3) if ae is None else ae)
+
+    return np.concatenate([vi, ai])
+
+# Numeric solver functions
 def step_euler(h,t_k,x_k,f):
+    """
+    Performs one step of the explicit Euler method for a first-order ODE.
+
+    The state vector x contains both the position and velocity vectors,
+    formatted as: [rx, ry, rz, vx, vy, vz].
+
+    :param h: Time step size [s]
+    :param t_k: Current time [s]
+    :param x_k: State vector containing position [km] and velocity [km/s]
+    :param f: Function f(t, x) returning dx/dt
+    :return: State vector at time t + h [km | km/s]
+    """
     return x_k + h * f(t_k,x_k)
 
 def step_leapfrog(h,t_k,x_k,f):
-    r = x_k[:3]
-    v = x_k[3:]
+    """
+    Performs one step of the explicit Leapfrog method for a first-order ODE.
 
-    a = f(t_k, x_k)[3:]  # acceleration part
+    The state vector x contains both the position and velocity vectors,
+    formatted as: [rx, ry, rz, vx, vy, vz].
 
-    v_half = v + 0.5 * h * a
-    r_next = r + h * v_half
-    a_next = f(t_k, np.hstack((r_next, v_half)))[3:]
-    v_next = v_half + 0.5 * h * a_next
+    :param h: Time step size [s]
+    :param t_k: Current time [s]
+    :param x_k: State vector containing position [km] and velocity [km/s]
+    :param f: Function f(t, x) returning dx/dt
+    :return: State vector at time t + h [km | km/s]
+    """
+    # Current values
+    dx = f(t_k, x_k) # [vx, vy, vz, ax, ay, az]
+    v_half = dx[:3] + 0.5 * dx[3:] * h
 
-    return np.hstack((r_next, v_next))
+    # New values
+    r_new  = x_k[:3] + v_half * h
+    v_new = 2 * v_half - x_k[3:]
+
+    return np.concatenate([r_new, v_new])
 
 def step_verlet(h,t_k,x_k,x_prev,f):
-    r_k = x_k[:3]
-    r_km1 = x_prev[:3]
+    if x_prev is None: 
+        r_k = x_k[:3]
+        v_k = x_k[3:]
 
+        a_k = f(t_k, x_k)[3:]
+        r_next = r_k + v_k * h + 0.5 * a_k * h**2
+
+        return np.concatenate([r_next, v_k])
+
+    # Extract positions
+    r_k = x_k[:3]
+    r_prev = x_prev[:3]
+
+    # Get acceleration from f
     a_k = f(t_k, x_k)[3:]
 
-    r_next = 2 * r_k - r_km1 + h**2 * a_k
+    # Verlet position update
+    r_next = 2 * r_k - r_prev + a_k * h ** 2
 
-    # velocity (optional approximation)
-    v_next = (r_next - r_k) / h
-
-    return np.hstack((r_next, v_next))
+    # AI Slop!!! No idea of its accuracy but velocity is optional in verlet
+    v_next = (r_next - r_prev) / (2 * h)
+    return np.concatenate([r_next, v_next])
 
 def step_RK4(h,t_k,x_k,f,ae):
 
@@ -226,23 +291,14 @@ def step_RK4(h,t_k,x_k,f,ae):
     t4 = t1 + h
 
     x1 = x_k
-    x2 = x1 + 0.5 * h * f(t1,x1,ae,ol.my)
-    x3 = x1 + 0.5 * h * f(t2,x2,ae,ol.my)
-    x4 = x1 + h * f(t3,x3,ae,ol.my)
+    x2 = x1 + 0.5 * h * f(t1,x1,ae)
+    x3 = x1 + 0.5 * h * f(t2,x2,ae)
+    x4 = x1 + h * f(t3,x3,ae)
 
-    f1 = f(t1,x1,ae,ol.my)
-    f2 = f(t2,x2,ae,ol.my)
-    f3 = f(t3,x3,ae,ol.my)
-    f4 = f(t4,x4,ae,ol.my)
+    f1 = f(t1,x1,ae)
+    f2 = f(t2,x2,ae)
+    f3 = f(t3,x3,ae)
+    f4 = f(t4,x4,ae)
 
     return x1 + (h/6) * (f1+2*f2+2*f3+f4)
 
-def two_body(t, x, ae, my): 
-
-    ri = x[:3] 
-    vi = x[3:] 
-
-    r = np.linalg.norm(ri)
-    ai = -my/r**3 * ri + (np.zeros(3) if ae is None else ae)
-
-    return np.concatenate([vi, ai])
