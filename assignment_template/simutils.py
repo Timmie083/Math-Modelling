@@ -302,3 +302,34 @@ def step_RK4(h,t_k,x_k,f,ae):
 
     return x1 + (h/6) * (f1+2*f2+2*f3+f4)
 
+###################################
+# Assignment 4 | Algorithms       #
+###################################
+
+def quaternion_to_dcm():
+
+def dcm_to_quaternion(R):
+    q = np.zeros(4)
+    trR = np.linealg.trace(R)
+    if trR > 0:
+        q[0] = 0.5 * np.sqrt(1+trR)
+        q[1] = 1/(4 * q[0]) * (R[1,2]-R[2,1])
+        q[2] = 1/(4 * q[0]) * (R[2,0]-R[0,2])
+        q[3] = 1/(4 * q[0]) * (R[0,1]-R[1,0])
+    else:
+        D = R.diagonal()
+        i, j, k = np.roll (np.arrange(3), -np.argmax(D))
+        q[i+1] = 0.5 * np.sqrt(1 + R[i,i] - R[j,j] - R[k,k])
+        q[j+1] = 1/(4 * q[i+1]) * (R[i,j]-R[j,i])
+        q[k+1] = 1/(4 * q[i+1]) * (R[i,k]-R[k,i])
+        q[0] = 1/(4 * q[i+1]) * (R[j,k]-R[k,j])
+    return Quaternion(np.sign(q[0]) * q).conjugated()
+
+def euler_to_quaternion():
+
+def quaternion_to_euler():
+
+def dcm_to_euler():
+
+def euler_to_dcm():
+

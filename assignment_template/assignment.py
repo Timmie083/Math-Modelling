@@ -28,12 +28,12 @@ class ScenarioAssignment(sim.BaseScenario):
         r31 = RE + 800                  #[km]   Radius used in assignment 3.1
         v31 = np.sqrt(ol.mu/(RE + 800)) #[km/s] Velocity used in assignment 3.1
         r32 = 7378                      #[km]   Radius used in assignment 3.2
-        r32 = 9                         #[km/s] Velocity used in assignment 3.2
+        v32 = 9                         #[km/s] Velocity used in assignment 3.2
 
         # Satellite variables
         self.q = su.Quaternion()        # Satellite rotation
-        self.ri = np.array([r31, 0, 0]) # Satellite position NB! Check if correct per assignment
-        self.vi = np.array([0, 0, v31]) # Satellite velocity NB! Check if correct per assignment
+        self.ri = np.array([0, 0, 0])   # Satellite position NB! Check if correct per assignment
+        self.vi = np.array([0, 0, 0]) #  Satellite velocity NB! Check if correct per assignment
 
         self.m = 8000 # Mass of the satellite [kg]
 
@@ -65,12 +65,6 @@ class ScenarioAssignment(sim.BaseScenario):
 
     def update(self, t, dt):
 
-        # Next step
-        self.euler_x = su.step_euler(dt, t, self.euler_x, su.two_body)
-        self.leapfrog_x = su.step_leapfrog(dt, t, self.leapfrog_x, su.two_body)
-        self.verlet_x, self.verlet_x_past = su.step_verlet(dt, t, self.verlet_x, self.verlet_x_past, su.two_body), self.verlet_x
-        self.ri = self.verlet_x[:3]  # Get position vector NB! Check that numerical solver is correct
-
         #Assignment 3.2
         k1 = 10e-4
         k2 = 10e-4
@@ -86,8 +80,15 @@ class ScenarioAssignment(sim.BaseScenario):
 
         ae = (T * self.RK4_x[3:] / np.linalg.norm(self.RK4_x[3:])) / self.m
 
+        # Next step
+        self.euler_x = su.step_euler(dt, t, self.euler_x, su.two_body)
+        self.leapfrog_x = su.step_leapfrog(dt, t, self.leapfrog_x, su.two_body)
+        self.verlet_x, self.verlet_x_past = su.step_verlet(dt, t, self.verlet_x, self.verlet_x_past, su.two_body), self.verlet_x
         self.RK4_x = su.step_RK4(dt, t, self.RK4_x, su.two_body, ae=ae)
-        #self.ri = self.RK4_x[:3]  # Get position vector
+        #self.ri = self.euler_x[:3]     # Get position vector NB! Check that numerical solver is correct
+        #self.ri = self.leapfrog_x[:3]  # Get position vector NB! Check that numerical solver is correct
+        #self.ri = self.verlet_x[:3]    # Get position vector NB! Check that numerical solver is correct
+        #self.ri = self.RK4_x[:3]        # Get position vector NB! Check that numerical solver is correct
 
         # Calculate earth's rotation from time step
         self.theta_E += dt * ol.w_E
@@ -122,8 +123,8 @@ def main():
 
     sim_config = {
         't_0': 0,
-        't_e': 20000,
-        't_step': 10,
+        't_e': 56000,
+        't_step': 100,
         'speed_factor': 100,
         'anim_dt': 0.04,
         'scale_factor': 1000,
