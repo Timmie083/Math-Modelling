@@ -306,9 +306,64 @@ def step_RK4(h,t_k,x_k,f,ae):
 # Assignment 4 | Algorithms       #
 ###################################
 
-def quaternion_to_dcm():
+def quaternion_to_dcm(q):
+    """
+    Transformation between quaternion to Direction Cosine Matrix
+
+    :param q: Quaternion vector [q0, q1, q2, q3]
+    :return: DCM 3x3 matrix, R
+    """
+    return np.array([
+        [(q[0]**2)+(q[1]**2)-(q[2]**2)-(q[3]**2),   2(q[1]*q[2]+q[0]*q[3]),                     2(q[1]*q[3]-q[0]*q[2])]
+        [2(q[1]*q[2]-q[0]*q[3]),                    (q[0]**2)-(q[1]**2)+(q[2]**2)-(q[3]**2),    2(q[2]*q[3]+q[0]*q[1])]
+        [2(q[1]*q[3]+q[0]*q[2]),                    2(q[2]*q[3]-q[0]*q[1]),                     (q[0]**2)-(q[1]**2)-(q[2]**2)+(q[3]**2)]
+            ])
+
+def axis_angle_to_quaternion(theta, u):
+    """
+    Transformation between axis angle to quaternion
+
+    :param theta: [Degrees]
+    :param u: Unit-vector
+    :return: Quaternion vector [q0, q1, q2, q3]
+    """
+    arg = np.array[u*np.sin(theta/2)]
+    return np.array([
+        [np.cos(theta/2)]
+        [arg[0]]
+        [arg[1]]
+        [arg[2]]
+    ])
+
+def axis_angle_to_dcm(theta, u):
+    """
+    Transformation between axis angle to Direction Cosine Matrix
+
+    :param theta: [Degrees]
+    :param u: Unit-vector
+    :return: DCM 3x3 matrix, R
+    """
+    S = np.array([
+        [0,     -u[2],  u[1]]
+        [u[2],  0,      -u[0]]
+        [-u[1], u[0],   0]
+    ])
+
+    I = np.array([
+        [1]
+        [0]
+        [0]
+    ])
+
+    return I + np.sin(theta)*S + (1 - np.cos(theta))*S**2
 
 def dcm_to_quaternion(R):
+    """
+    Transformation between Direction Cosine Matrix to quaternion
+
+    :param R: DCM 3x3 matrix
+    :return: Quaternion vector [q0, q1, q2, q3]
+    """
     q = np.zeros(4)
     trR = np.linealg.trace(R)
     if trR > 0:
@@ -325,11 +380,70 @@ def dcm_to_quaternion(R):
         q[0] = 1/(4 * q[i+1]) * (R[j,k]-R[k,j])
     return Quaternion(np.sign(q[0]) * q).conjugated()
 
-def euler_to_quaternion():
+def euler_to_quaternion(roll, pitch, yaw):
+    """
+    Transformation between Euler angles (roll, pitch, yaw) to quaternion
 
-def quaternion_to_euler():
+    :param roll: Roll angle [degrees]
+    :param pitch: Pitch angle [degrees]
+    :param yaw: Yaw angle [degrees]
+    :return: Quaternion vector [q0, q1, q2, q3]
+    """
+    arg = np.zeros(4,1)
+    you = np.zeros(4,1)
+    ment= np.zeros(4,1)
 
-def dcm_to_euler():
+    arg[0] = np.cos(roll/2)
+    arg[3] = np.sin(roll/2)
 
-def euler_to_dcm():
+    you[0] = np.cos(pitch/2)
+    you[2] = np.sin(pitch/2)
+
+    ment[0] = np.cos(yaw/2)
+    ment[1] = np.sin(yaw/2)
+
+    return np.cross(arg,np.cross(you,ment))
+
+def quaternion_to_euler(q):
+    """
+    Transformation between quaternion to Euler angles (roll, pitch, yaw)
+
+    :param q: Quaternion vector [q0, q1, q2, q3]
+    :return: Euler angle vector [roll, pitch, yaw]
+    """
+    roll = np.atan2((2(q[0]*q[1] + q[2]*q[3]), q[0]**2 + q[3]**2) - q[1]**2 - q[2]**2)
+    pitch = np.asin(2(q[0]*q[2] - q[1]*q[3]))
+    yaw = np.atan2((2(q[0]*q[3] + q[1]*q[2]), q[0]**2 + q[3]**2) - q[1]**2 - q[2]**2)
+
+    return [roll, pitch, yaw]
+
+def euler_to_dcm(roll, pitch, yaw):
+    """
+    Transformation between Euler angles (roll, pitch, yaw) to Direction Cosine Matrix
+
+    :param roll: Roll angle [degrees]
+    :param pitch: Pitch angle [degrees]
+    :param yaw: Yaw angle [degrees]
+    :return: DCM 3x3 matrix, R
+    """
+    return np.array([
+        [np.cos(pitch)*np.cos(yaw),     np.sin(roll)*np.sin(pitch)*np.cos(yaw) - np.cos(roll)*np.sin(yaw),  np.cos(roll)*np.sin(pitch)*np.cos(yaw) + np.sin(roll)*np.sin(yaw)]             
+        [np.cos(pitch)*np.sin(yaw),     np.sin(roll)*np.sin(pitch)*np.sin(yaw) + np.cos(roll)*np.cos(yaw),  np.cos(roll)*np.sin(pitch)*np.sin(yaw) - np.sin(roll)*np.cos(yaw)]             
+        [-np.sin(pitch),                np.sin(roll)*np.cos(pitch),                                         np.cos(roll)*np.cos(pitch)]             
+                     ])
+
+def dcm_to_euler(R):
+    """
+    Transformation between Direction Cosine Matrix to Euler angles (roll, pitch, yaw)
+
+    :param R: DCM 3x3 matrix
+    :return: Euler angle vector [roll, pitch, yaw]
+    """
+    roll = np.atan2(R[1,2], R[2,2])
+    pitch = np.asin(-R[0,2])
+    yaw = np.atan2(R[0,1], R[0,0])
+
+    return [roll, pitch, yaw]
+
+
 
