@@ -533,7 +533,7 @@ def orbit_propagation(ri, vi):
     # Test
     pos_plot = np.concatenate(([0], ri))  # Initialize the plot data
 
-    # Some for loop??? Propagation loop
+    # Propagation loop
     dt = 1
     for t in range(0, int(T), dt):
         Me = angle_wrap_radians(Me + n * dt)

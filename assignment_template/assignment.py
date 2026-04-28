@@ -88,7 +88,7 @@ class ScenarioAssignment(sim.BaseScenario):
         #self.ri = self.euler_x[:3]     # Get position vector NB! Check that numerical solver is correct
         #self.ri = self.leapfrog_x[:3]  # Get position vector NB! Check that numerical solver is correct
         #self.ri = self.verlet_x[:3]    # Get position vector NB! Check that numerical solver is correct
-        #self.ri = self.RK4_x[:3]        # Get position vector NB! Check that numerical solver is correct
+        #self.ri = self.RK4_x[:3]       # Get position vector NB! Check that numerical solver is correct
 
         # Calculate earth's rotation from time step
         self.theta_E += dt * ol.w_E
@@ -118,8 +118,6 @@ class ScenarioAssignment(sim.BaseScenario):
         pl.line_plot(file, labels=["Euler", "Leapfrog", "Verlet"])
 
 def main():
-
-
 
     sim_config = {
         't_0': 0,

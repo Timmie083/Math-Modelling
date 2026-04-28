@@ -313,11 +313,13 @@ def quaternion_to_dcm(q):
     :param q: Quaternion vector [q0, q1, q2, q3]
     :return: DCM 3x3 matrix, R
     """
+    q0, q1, q2, q3 = q
+
     return np.array([
-        [(q[0]**2)+(q[1]**2)-(q[2]**2)-(q[3]**2),   2(q[1]*q[2]+q[0]*q[3]),                     2(q[1]*q[3]-q[0]*q[2])]
-        [2(q[1]*q[2]-q[0]*q[3]),                    (q[0]**2)-(q[1]**2)+(q[2]**2)-(q[3]**2),    2(q[2]*q[3]+q[0]*q[1])]
-        [2(q[1]*q[3]+q[0]*q[2]),                    2(q[2]*q[3]-q[0]*q[1]),                     (q[0]**2)-(q[1]**2)-(q[2]**2)+(q[3]**2)]
-            ])
+        [q0**2 + q1**2 - q2**2 - q3**2,   2*(q1*q2 + q0*q3),           2*(q1*q3 - q0*q2)],
+        [2*(q1*q2 - q0*q3),               q0**2 - q1**2 + q2**2 - q3**2, 2*(q2*q3 + q0*q1)],
+        [2*(q1*q3 + q0*q2),               2*(q2*q3 - q0*q1),           q0**2 - q1**2 - q2**2 + q3**2]
+    ])
 
 def axis_angle_to_quaternion(theta, u):
     """
@@ -411,12 +413,25 @@ def quaternion_to_euler(q):
     :param q: Quaternion vector [q0, q1, q2, q3]
     :return: Euler angle vector [roll, pitch, yaw]
     """
-    roll = np.atan2((2(q[0]*q[1] + q[2]*q[3]), q[0]**2 + q[3]**2) - q[1]**2 - q[2]**2)
-    pitch = np.asin(2(q[0]*q[2] - q[1]*q[3]))
-    yaw = np.atan2((2(q[0]*q[3] + q[1]*q[2]), q[0]**2 + q[3]**2) - q[1]**2 - q[2]**2)
+    q0, q1, q2, q3 = q
 
-    return [roll, pitch, yaw]
+    # Roll (x-axis)
+    roll = np.atan2(
+        2*(q0*q1 + q2*q3),
+        1 - 2*(q1**2 + q2**2)
+    )
 
+    # Pitch (y-axis)
+    sinp = 2*(q0*q2 - q3*q1)
+    pitch = np.arcsin(np.clip(sinp, -1, 1))  # avoid numerical issues
+
+    # Yaw (z-axis)
+    yaw = np.atan2(
+        2*(q0*q3 + q1*q2),
+        1 - 2*(q2**2 + q3**2)
+    )
+
+    return np.array([roll, pitch, yaw])
 def euler_to_dcm(roll, pitch, yaw):
     """
     Transformation between Euler angles (roll, pitch, yaw) to Direction Cosine Matrix
@@ -445,5 +460,20 @@ def dcm_to_euler(R):
 
     return [roll, pitch, yaw]
 
+# Quaternion helper functions
 
+    #Quaternion conjugator
+def quat_conj(q):
+    return np.array([q[0], -q[1], -q[2], -q[3]])
 
+    #Quaternion multiplicator
+def quat_mult(q1, q2):
+    w1,x1,y1,z1 = q1
+    w2,x2,y2,z2 = q2
+
+    return np.array([
+        w1*w2 - x1*x2 - y1*y2 - z1*z2,
+        w1*x2 + x1*w2 + y1*z2 - z1*y2,
+        w1*y2 - x1*z2 + y1*w2 + z1*x2,
+        w1*z2 + x1*y2 - y1*x2 + z1*w2
+    ])
