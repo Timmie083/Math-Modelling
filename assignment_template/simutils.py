@@ -432,6 +432,7 @@ def quaternion_to_euler(q):
     )
 
     return np.array([roll, pitch, yaw])
+
 def euler_to_dcm(roll, pitch, yaw):
     """
     Transformation between Euler angles (roll, pitch, yaw) to Direction Cosine Matrix

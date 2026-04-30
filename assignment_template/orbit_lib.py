@@ -667,5 +667,153 @@ def get_orbit_periapsis(x, e, u=mu):
 
     return np.linalg.norm(np.cross(ri, vi)) ** 2 / (u * (1 + e))
 
+###################################
+# Assignment 5 | Algos & Classes  #
+###################################
 
+# Function/s
 
+def orbit_frame_from_state(r_i, v_i):
+    """
+    Compute the orbit fram from the state.
+    :param r_i: Position [km]
+    :param v_i: Velocity  [km/s]
+    :return: Quaternion attitude, angular velocity, angular acceleration.
+    """
+    r_i = np.array(r_i)
+    v_i = np.array(v_i)
+
+    r_norm = np.linalg.norm(r_i)
+
+    i_o = r_i / r_norm
+    h = np.cross(r_i, v_i)
+    k_o = h / np.linalg.norm(h)
+    j_o = np.cross(k_o, i_o)
+
+    # DCM
+    C_io = np.vstack((i_o, j_o, k_o)).T
+
+    # Quaternion
+    q_io = su.dcm_to_quaternion(C_io)
+
+    # Angular velocity
+    omega_io_i = h / (r_norm**2)
+
+    # Angular acceleration
+    r_dot_v = np.dot(r_i, v_i)
+    omega_dot_io_i = -2 * (r_dot_v / r_norm**2) * omega_io_i
+
+    return q_io, omega_io_i, omega_dot_io_i
+
+# Helper function/s
+
+def rotation_matrix(O, i, w):
+    """Perifocal -> inertial DCM"""
+    cO, sO = np.cos(O), np.sin(O)
+    ci, si = np.cos(i), np.sin(i)
+    cw, sw = np.cos(w), np.sin(w)
+
+    return np.array([
+        [cO*cw - sO*sw*ci, -cO*sw - sO*cw*ci, sO*si],
+        [sO*cw + cO*sw*ci, -sO*sw + cO*cw*ci, -cO*si],
+        [sw*si,             cw*si,             ci]
+    ])
+
+# Classes
+
+class orbit_classic:
+    def __init__(self, h, e, theta, O, i, w):
+
+        self.h = h
+        self.e = e
+        self.theta = theta
+        self.O = O
+        self.i = i
+        self.w = w
+
+    def propagate(self, t_step):
+        """Advance true anomaly"""
+        r = self.h**2 / (mu * (1 + self.e*np.cos(self.theta)))
+        theta_dot = self.h / r**2
+        self.theta += theta_dot * t_step
+
+    def get_params(self):
+        return self.h, self.e, self.theta, self.O, self.i, self.w
+
+    def get_state(self):
+        """Return r_i, v_i"""
+        h, e, theta = self.h, self.e, self.theta
+
+        r = h**2 / (mu * (1 + e*np.cos(theta)))
+
+        # Perifocal frame
+        r_pf = np.array([r*np.cos(theta), r*np.sin(theta), 0.0])
+        v_pf = np.array([
+            -mu/h * np.sin(theta),
+             mu/h * (e + np.cos(theta)),
+             0.0
+        ])
+
+        Q = rotation_matrix(self.O, self.i, self.w)
+
+        r_i = Q @ r_pf
+        v_i = Q @ v_pf
+
+    def get_orbit_frame(self):
+        r_i, v_i = self.get_state()
+        return orbit_frame_from_state(r_i, v_i)
+
+class orbit_tle:
+    def __init__(self, n, e, M_e, O, i, w):
+
+        self.n = n
+        self.e = e
+        self.M_e = M_e
+        self.O = O
+        self.i = i
+        self.w = w
+
+    def propagate(self, t_step):
+        """Advance mean anomaly"""
+        self.M_e += self.n * t_step
+
+    def get_params(self):
+        return self.n, self.e, self.M_e, self.O, self.i, self.w
+
+    def get_state(self):
+        """Convert to r_i, v_i"""
+        n, e, M = self.n, self.e, self.M_e
+
+        # Semi-major axis from mean motion
+        a = (mu / n**2)**(1/3)
+
+        # Solve for eccentric anomaly
+        E = eccentric_anomaly_from_mean_anomaly(M, e)
+
+        # True anomaly
+        theta = 2 * np.arctan2(
+            np.sqrt(1+e)*np.sin(E/2),
+            np.sqrt(1-e)*np.cos(E/2)
+        )
+
+        r = a * (1 - e*np.cos(E))
+
+        # Perifocal state
+        r_pf = np.array([r*np.cos(theta), r*np.sin(theta), 0])
+
+        v_pf = np.array([
+            -np.sqrt(mu*a)/r * np.sin(E),
+             np.sqrt(mu*a)/r * np.sqrt(1-e**2)*np.cos(E),
+             0
+        ])
+
+        Q = rotation_matrix(self.O, self.i, self.w)
+
+        r_i = Q @ r_pf
+        v_i = Q @ v_pf
+
+        return r_i, v_i
+
+    def get_orbit_frame(self):
+        r_i, v_i = self.get_state()
+        return orbit_frame_from_state(r_i, v_i)
