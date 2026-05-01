@@ -7,43 +7,63 @@ import plotter as pl
 import math
 
 ###################################
+# Assignment 5 | Classes          # Assig 4 below
+###################################
+
+class ADCS_PD:
+
+    def __init__(self, k1, k2, f_c, J):
+
+        self.k1 = k1
+        self.k2 = k2
+        self.J = J
+        self.tau = np.zeros(3)
+
+    def update(self, q_ib, w_b_ib, q_io, w_i_io):
+
+        # Quaternion error (q_error = q_id^{-1} ⊗ q_ib)
+
+        q_e = su.quat_mult(su.quat_conj(q_io), q_ib)
+
+        if q_e[0] < 0:
+            q_e = -q_e
+
+        q_v = q_e[1:4]
+
+        # Angular velocity error
+
+            # Rotation matrix from error quaternion
+        R_e = su.quaternion_to_dcm(q_e)
+
+            # Convert desired angular velocity into body frame
+        w_d_body = R_e @ w_i_io
+
+        w_err = w_b_ib - w_d_body
+
+        # PD control law
+
+        self.tau = -self.k1 * q_v - self.k2 * w_err
+
+    def get_control(self):
+        return self.tau
+
+###################################
 # Assignment 4 | Classes          #
 ###################################
 
 class RigidBody(sim.BaseScenario):
-    def __init__(self):
+    def __init__(self, r, v, m, q, w, J):
         
-        self.q = None       #Quaternion [4]
-        self.omega = None   #Angular velocity [3]
-        self.tau = None     #Torque [3]
-        self.J = None       #Inertia matrix [3x3]
+        self.r = r
+        self.v = v
+        self.m = m
+        self.q = q
+        self.omega = w
+        self.J = J
 
-        self.r = None       #Position
-        self.v = None       #Velocity
-        self.F = None       #Force
-        self.m = None       #Mass
+        self.tau = np.zeros(3)
+        self.F = np.zeros(3)
 
-        self.RK4_x = None
-
-    def init(self, t):
-        
-        # Rotation
-        self.q = np.array([1.0, 0, 0, 0])
-        self.omega = np.array([0, 0, 5])
-        self.tau = np.array([0, 0, 0])
-        self.J = np.array([
-            [2,     1,      0],
-            [1,     10,     0.1],
-            [0,     0.1,    2.5]
-        ])
-
-        # Translation
-        self.r = np.array([7000, 0, 0])   # [km]
-        self.v = np.array([0, 7.5, 0])      # [km/s]
-        self.F = np.array([0, 0, 0])      # Force [N]
-        self.m = 1000.0                         # [kg]
-
-        # Full state vector
         self.RK4_x = np.hstack((self.q, self.omega, self.r, self.v))
 
     def update(self, t, dt):
@@ -114,12 +134,32 @@ class RigidBody(sim.BaseScenario):
 
 class Satellite(sim.BaseScenario):
 
-    def __init__(self):
+    def __init__(self, q_ib, w_b_ib, J, r=np.zeros(3), v=np.zeros(3), m=1, orbit=None, substeps=0):
+        
+        """ Assignment 4 __init__
         self.rb = RigidBody()
 
         self.k1 = 2
         self.k2 = 1
+        """
 
+        # Assignement 5.3 modification
+        
+        self.orbit = orbit
+
+        if self.orbit is not None:
+            r, v = self.orbit.get_state()
+
+        # Rigid body
+        self.body = RigidBody(r, v, m, q_ib, w_b_ib, J)
+
+        # Substepping
+        self.N = substeps + 1
+
+        # ADCS
+        self.ADCS = ADCS_PD(1e-5, 2e-4, 0, J)
+
+    """ Assignment 4 init
     def init(self, t):
         self.rb.init(t)
 
@@ -131,9 +171,11 @@ class Satellite(sim.BaseScenario):
 
         self.q_d = np.array([0.5, 0.5, 0.5, 0.5])
         self.omega_d = np.array([0.2, -0.1, 0.05])
+    """
 
-    def update(self, t, dt):
+    def update(self, t_k, t_step):
 
+        """ Assignment 4 version control
         q = self.rb.q
         omega = self.rb.omega
 
@@ -153,11 +195,78 @@ class Satellite(sim.BaseScenario):
 
         self.rb.tau = tau
         self.rb.update(t, dt)
+        """
 
+        # Assignement 5.3 Modification
+
+        if self.orbit:
+            self.update_with_orbit(t_k, t_step)
+        else:
+            self.update_with_dynamics(t_k, t_step)
+
+
+    # With orbit
+
+    def update_with_orbit(self, t_k, t_step):
+
+        dt = t_step / self.N
+
+        for _ in range(self.N):
+
+            # Propagate orbit
+            self.orbit.propagate(dt)
+
+            # Get orbit frame
+            q_io, w_i_io, _ = self.orbit.get_orbit_frame()
+
+            # Get body state
+            q_ib = self.body.q
+            w_b_ib = self.body.omega
+
+            # ADCS
+            self.ADCS.update(q_ib, w_b_ib, q_io, w_i_io)
+
+            self.body.tau = self.ADCS.get_control()
+
+            # Update rigid body
+            self.body.update(t_k, dt)
+
+    # No orbit
+
+    def update_with_dynamics(self, t_k, t_step):
+
+        dt = t_step / self.N
+
+        for _ in range(self.N):
+
+            # No reference frame, therefore zero desired
+            q_io = np.array([1, 0, 0, 0])
+            w_i_io = np.zeros(3)
+
+            q_ib = self.body.q
+            w_b_ib = self.body.omega
+
+            self.ADCS.update(q_ib, w_b_ib, q_io, w_i_io)
+
+            self.body.tau = self.ADCS.get_control()
+
+            self.body.update(t_k, dt)
+
+    def get_state(self):
+        return self.r, self.v, self.q, self.omega
+
+    def get_orbit_frame(self):
+        if self.orbit:
+            return self.orbit.get_orbit_frame()
+        else:
+            r, v, _, _ = self.body.get_state()
+            return ol.orbit_frame_from_state(r, v)
+        
     def get(self):
         return [
-            ['satellite', np.array([0, 0, 0]), self.rb.q],
+            ['satellite', self.body.r, self.body.q],
         ]
+    
 
 def main():
 
@@ -171,49 +280,8 @@ def main():
         'visualise': True
     }
 
-    scenario = Satellite()
+    scenario = Satellite(q_ib = np.array([1, 0, 0, 0]), w_b_ib = np.zeros(3), J=np.diag([0.5,0.5,0.5]))
     sim.create_and_start_simulation(sim_config, scenario)
 
 if __name__ == "__main__":
     main()
-
-###################################
-# Assignment 5 | Classes          #
-###################################
-
-class ADCS_PD:
-
-    def __init__(self, k1, k2, f_c, J):
-
-        self.k1 = k1
-        self.k2 = k2
-        self.J = J
-        self.tau = np.zeros(3)
-
-    def update(self, q_ib, w_b_ib, q_io, w_i_io):
-
-        # Quaternion error (q_error = q_id^{-1} ⊗ q_ib)
-
-        q_e = su.quat_mult(su.quat_conj(q_io), q_ib)
-
-        if q_e[0] < 0:
-            q_e = -q_e
-
-        q_v = q_e[1:4]
-
-        # Angular velocity error
-
-            # Rotation matrix from error quaternion
-        R_e = su.quaternion_to_dcm(q_e)
-
-            # Convert desired angular velocity into body frame
-        w_d_body = R_e @ w_i_io
-
-        w_err = w_b_ib - w_d_body
-
-        # PD control law
-
-        self.tau = -self.k1 * q_v - self.k2 * w_err
-
-    def get_control(self):
-        return self.tau

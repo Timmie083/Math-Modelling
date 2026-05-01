@@ -29,7 +29,7 @@ class SimCanvas(scene.SceneCanvas):
         self.view.camera.distance = 10 
         self.light_dir = (-100, 0, 0, 0)
         self.scene_list = {}
-        #self.follow = 'earth'
+        self.follow = 'earth'
         if scene_conf is None:
             self.make_default_scene(_default_conf)
 
@@ -39,7 +39,7 @@ class SimCanvas(scene.SceneCanvas):
 
     def make_default_scene(self,conf):
         self.make_default_satellite(conf['satellite_model'])
-        #self.make_default_earth(conf['earth_model'],conf['earth_texture'])
+        self.make_default_earth(conf['earth_model'],conf['earth_texture'])
         self.make_default_frames()
         for k in self.scene_list.keys():
             self.scene_list[k][0].transform = Mat4()
@@ -68,10 +68,10 @@ class SimCanvas(scene.SceneCanvas):
     def make_default_frames(self):
         self.body_frame = scene.visuals.XYZAxis(parent=self.view.scene)
         self.scene_list['body frame'] = (self.body_frame,self.scene_list['satellite'][1])
-        #self.ecef_frame = scene.visuals.XYZAxis(parent=self.view.scene)
-        #self.eci_frame = scene.visuals.XYZAxis(parent=self.view.scene)
-        #self.scene_list['ECI frame'] = (self.eci_frame,1.3*self.scene_list['earth'][1])
-        #self.scene_list['ECEF frame'] = (self.ecef_frame,1.3*self.scene_list['earth'][1])
+        self.ecef_frame = scene.visuals.XYZAxis(parent=self.view.scene)
+        self.eci_frame = scene.visuals.XYZAxis(parent=self.view.scene)
+        self.scene_list['ECI frame'] = (self.eci_frame,1.3*self.scene_list['earth'][1])
+        self.scene_list['ECEF frame'] = (self.ecef_frame,1.3*self.scene_list['earth'][1])
 
     def update_scene(self,anim_data):
         for name,p,q in anim_data:
@@ -82,7 +82,7 @@ class SimCanvas(scene.SceneCanvas):
         if not self.anim_queue.empty():
             anim_data = self.anim_queue.get_nowait()
             self.update_scene(anim_data)
-            #_,self.view.camera.center = su.H_to_Rp(self.scene_list[self.follow][0].transform)
+            _,self.view.camera.center = su.H_to_Rp(self.scene_list[self.follow][0].transform)
             self.update()
 
     def on_close(self,event):
