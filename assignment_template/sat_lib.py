@@ -134,7 +134,7 @@ class RigidBody(sim.BaseScenario):
 
 class Satellite(sim.BaseScenario):
 
-    def __init__(self, q_ib, w_b_ib, J, r=np.zeros(3), v=np.zeros(3), m=1, orbit=None, substeps=0):
+    def __init__(self, q_ib, w_b_ib, J, r=np.zeros(3), v=np.zeros(3), m=1, orbit=None, substeps=50):
         
         """ Assignment 4 __init__
         self.rb = RigidBody()
@@ -253,7 +253,7 @@ class Satellite(sim.BaseScenario):
             self.body.update(t_k, dt)
 
     def get_state(self):
-        return self.r, self.v, self.q, self.omega
+        return self.body.r, self.body.v, self.body.q, self.body.omega
 
     def get_orbit_frame(self):
         if self.orbit:
@@ -272,15 +272,37 @@ def main():
 
     sim_config = {
         't_0': 0,
-        't_e': 500,
-        't_step': 0.01,
+        't_e': 5731,
+        't_step': 2,
         'speed_factor': 1,
         'anim_dt': 0.04,
-        'scale_factor': 1,
+        'scale_factor': 1000,
         'visualise': True
     }
 
-    scenario = Satellite(q_ib = np.array([1, 0, 0, 0]), w_b_ib = np.zeros(3), J=np.diag([0.5,0.5,0.5]))
+    J_matrix = np.array([
+        [0.00146519, 0.00001703, -0.00000633],
+        [0.00001703, 0.00151512, -0.00001598],
+        [-0.00000633, -0.00001598, 0.00146333]
+    ])
+
+    orbit = ol.orbit_tle(
+        n=15.07529327671380 * 2*np.pi / (24*3600),
+        e=0.0034704,
+        M_e=np.deg2rad(323.2390),
+        O=np.deg2rad(81.8923),
+        i=np.deg2rad(97.7929),
+        w=np.deg2rad(37.1228)
+    )
+
+    scenario = Satellite(
+        q_ib=np.array([1, 0, 0, 0]),
+        w_b_ib=np.zeros(3),
+        J=J_matrix,
+        orbit=orbit,
+        substeps=50
+    )
+
     sim.create_and_start_simulation(sim_config, scenario)
 
 if __name__ == "__main__":

@@ -367,7 +367,7 @@ def dcm_to_quaternion(R):
     :return: Quaternion vector [q0, q1, q2, q3]
     """
     q = np.zeros(4)
-    trR = np.linealg.trace(R)
+    trR = np.linalg.trace(R)
     if trR > 0:
         q[0] = 0.5 * np.sqrt(1+trR)
         q[1] = 1/(4 * q[0]) * (R[1,2]-R[2,1])
@@ -375,7 +375,7 @@ def dcm_to_quaternion(R):
         q[3] = 1/(4 * q[0]) * (R[0,1]-R[1,0])
     else:
         D = R.diagonal()
-        i, j, k = np.roll (np.arrange(3), -np.argmax(D))
+        i, j, k = np.roll (np.arange(3), -np.argmax(D))
         q[i+1] = 0.5 * np.sqrt(1 + R[i,i] - R[j,j] - R[k,k])
         q[j+1] = 1/(4 * q[i+1]) * (R[i,j]-R[j,i])
         q[k+1] = 1/(4 * q[i+1]) * (R[i,k]-R[k,i])
