@@ -1,10 +1,8 @@
-import datetime as dt
 import numpy as np
 from vispy.scene import MatrixTransform as Mat4
 from vispy.util.quaternion import Quaternion as Quat
 
-import orbit_lib as ol
-import assignment as assig
+mu = 398600.4418
 
 class Error(Exception):
     pass
@@ -108,42 +106,6 @@ class Quaternion:
         v = self@Quaternion(u)@self.conjugated()
         return v[1:3]
 
-def read_TLE_file(file_name,satellite_name=''):
-  def validate_entry(Name,line1,line2):
-    if not Name[0].isalpha():
-      return False
-    if not line1[0].startswith("1") or not len(line1) == 9:
-      return False
-    if not line2[0].startswith("2") or not len(line2) == 8:
-      return False
-    return True
-
-  tle_data = []
-  with open(file_name) as f:
-    file_contents = f.readlines()
-  if len(file_contents) < 3:
-    print("Error reading file\nRequired format is:\nAAAAAAAAAAAAAAAAAAAAAAAA\n1 NNNNNU NNNNNAAA NNNNN.NNNNNNNN +.NNNNNNNN +NNNNN-N +NNNNN-N N NNNNN\n2 NNNNN NNN.NNNN NNN.NNNN NNNNNNN NNN.NNNN NNN.NNNN NN.NNNNNNNNNNNNNN\nfor each entry")
-    return tle_data
-
-  for i in range(0,len(file_contents),3):
-    if(satellite_name in file_contents[i]):
-      Name = file_contents[i].strip()
-      line1 = file_contents[i+1].strip().split()
-      line2 = file_contents[i+2].strip().split()
-      if validate_entry(Name,line1,line2):
-        epoch = float(line1[3])
-        e = float("0."+line2[4])
-        rev = float(line2[7])
-        Me = float(line2[6])
-        i = float(line2[2])
-        O = float(line2[3])
-        w = float(line2[5])
-        tle_data.append((Name,epoch,e,rev,Me,i,O,w))
-      else:
-        print("Error reading entry:\n{}{}{}".format(file_contents[i],file_contents[i+1],file_contents[i+2]))
-        break
-  return tle_data
-
 def read_obj(fname):
     verts = []
     vcols = []
@@ -199,7 +161,7 @@ def log_pos(name,pos,path='data/'):
 ###################################
 
 # f(t, x)
-def two_body(t, x, ae: np.ndarray=None, u=ol.mu): 
+def two_body(t, x, ae: np.ndarray=None, u=mu): 
     """
     Compute the time derivative of the state vector for the classical two-body problem.
 
@@ -329,7 +291,7 @@ def axis_angle_to_quaternion(theta, u):
     :param u: Unit-vector
     :return: Quaternion vector [q0, q1, q2, q3]
     """
-    arg = np.array[u*np.sin(theta/2)]
+    arg = np.array([u*np.sin(theta/2)])
     return np.array([
         [np.cos(theta/2)]
         [arg[0]]
@@ -346,14 +308,14 @@ def axis_angle_to_dcm(theta, u):
     :return: DCM 3x3 matrix, R
     """
     S = np.array([
-        [0,     -u[2],  u[1]]
-        [u[2],  0,      -u[0]]
+        [0,     -u[2],  u[1]],
+        [u[2],  0,      -u[0]],
         [-u[1], u[0],   0]
     ])
 
     I = np.array([
-        [1]
-        [0]
+        [1],
+        [0],
         [0]
     ])
 
@@ -443,8 +405,8 @@ def euler_to_dcm(roll, pitch, yaw):
     :return: DCM 3x3 matrix, R
     """
     return np.array([
-        [np.cos(pitch)*np.cos(yaw),     np.sin(roll)*np.sin(pitch)*np.cos(yaw) - np.cos(roll)*np.sin(yaw),  np.cos(roll)*np.sin(pitch)*np.cos(yaw) + np.sin(roll)*np.sin(yaw)]             
-        [np.cos(pitch)*np.sin(yaw),     np.sin(roll)*np.sin(pitch)*np.sin(yaw) + np.cos(roll)*np.cos(yaw),  np.cos(roll)*np.sin(pitch)*np.sin(yaw) - np.sin(roll)*np.cos(yaw)]             
+        [np.cos(pitch)*np.cos(yaw),     np.sin(roll)*np.sin(pitch)*np.cos(yaw) - np.cos(roll)*np.sin(yaw),  np.cos(roll)*np.sin(pitch)*np.cos(yaw) + np.sin(roll)*np.sin(yaw)],             
+        [np.cos(pitch)*np.sin(yaw),     np.sin(roll)*np.sin(pitch)*np.sin(yaw) + np.cos(roll)*np.cos(yaw),  np.cos(roll)*np.sin(pitch)*np.sin(yaw) - np.sin(roll)*np.cos(yaw)],             
         [-np.sin(pitch),                np.sin(roll)*np.cos(pitch),                                         np.cos(roll)*np.cos(pitch)]             
                      ])
 

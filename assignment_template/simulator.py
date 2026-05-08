@@ -13,7 +13,6 @@ import time
 
 import simutils as su
 import orbit_lib as ol 
-import sat_lib as sl
 
 class SimCanvas(scene.SceneCanvas):
     def __init__(self,anim_queue,anim_dt,anim_close,scale_factor,scene_conf=None):
