@@ -478,3 +478,163 @@ def quat_mult(q1, q2):
         w1*y2 - x1*z2 + y1*w2 + z1*x2,
         w1*z2 + x1*y2 - y1*x2 + z1*w2
     ])
+
+###################################
+# Assignment 6 | Algorithms       #
+###################################
+
+def parse_tle_exponential(field):
+    """
+    Parse TLE scientific notation fields.
+
+    Example:
+        ' 36248-4' -> 0.36248e-4
+        '-12345-5' -> -0.12345e-5
+    """
+
+    field = field.strip()
+
+    if not field:
+        return 0.0
+
+    sign = 1.0
+
+    if field[0] == '-':
+        sign = -1.0
+        field = field[1:]
+
+    elif field[0] == '+':
+        field = field[1:]
+
+    mantissa = field[:-2]
+    exponent = field[-2:]
+
+    return sign * float(f"0.{mantissa}e{exponent}")
+
+
+def read_TLE_file(file_name, satellite_name=None):
+    """
+    Read TLE data from file.
+
+    Parameters
+    ----------
+    file_name : str
+        Path to TLE file.
+
+    satellite_name : str or None
+        Optional satellite name filter.
+
+    Returns
+    -------
+    list of dict
+        Parsed TLE entries.
+    """
+
+    tle_data = []
+
+    with open(file_name, "r") as f:
+        lines = [line.rstrip() for line in f]
+
+    if len(lines) % 3 != 0:
+        raise ValueError(
+            "TLE file must contain groups of 3 lines."
+        )
+
+    for k in range(0, len(lines), 3):
+
+        name = lines[k]
+        line1 = lines[k + 1]
+        line2 = lines[k + 2]
+
+        # Basic validation
+        if not line1.startswith("1"):
+            continue
+
+        if not line2.startswith("2"):
+            continue
+
+        # Optional satellite filter
+        if satellite_name is not None:
+            if satellite_name.lower() not in name.lower():
+                continue
+
+        # ----- LINE 1 -----
+
+        epoch = float(line1[18:32])
+
+        dn_bar = float(line1[33:43])
+
+        ddn_bar = parse_tle_exponential(
+            line1[44:52]
+        )
+
+        bstar = parse_tle_exponential(
+            line1[53:61]
+        )
+
+        # ----- LINE 2 -----
+
+        inclination = float(line2[8:16])
+
+        raan = float(line2[17:25])
+
+        eccentricity = float(
+            "0." + line2[26:33].strip()
+        )
+
+        arg_perigee = float(line2[34:42])
+
+        mean_anomaly = float(line2[43:51])
+
+        revs_per_day = float(line2[52:63])
+
+        # ----- UNIT CONVERSIONS -----
+
+        # Mean motion [rad/s]
+        n = (
+            2 * np.pi * revs_per_day
+            / (24 * 3600)
+        )
+
+        # First derivative
+        n_dot = (
+            4 * np.pi * dn_bar
+            / (24 * 3600)**2
+        )
+
+        # Second derivative
+        n_ddot = (
+            12 * np.pi * ddn_bar
+            / (24 * 3600)**3
+        )
+
+        tle_entry = {
+
+            "name": name,
+
+            "epoch": epoch,
+
+            "e": eccentricity,
+
+            "i": np.radians(inclination),
+
+            "Omega": np.radians(raan),
+
+            "w": np.radians(arg_perigee),
+
+            "M_e": np.radians(mean_anomaly),
+
+            "revs_per_day": revs_per_day,
+
+            "n": n,
+
+            "n_dot": n_dot,
+
+            "n_ddot": n_ddot,
+
+            "bstar": bstar
+        }
+
+        tle_data.append(tle_entry)
+
+    return tle_data

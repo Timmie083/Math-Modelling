@@ -2,8 +2,11 @@ import math
 import simutils as su
 
 import numpy as np
-
+import sat_lib as sl
 import plotter as pl
+import simulator as sim
+
+import datetime as dt
 
 # Initial state from TLE (may be used later)
 #ri, vi = state_from_tle_params(
@@ -15,9 +18,11 @@ import plotter as pl
 #    w=104.1529
 #)
 
-mu = 398600.4418 # Standard gravitational parameter [km**3/s**-2]
-R_E = 6378.1363  # Radius of earth [km]
-w_E = 7.292115e-5 # Angular speed of earth [rad/s]
+mu = 398600.4418        # Standard gravitational parameter [km**3/s**-2]
+R_E = 6378.1363         # Radius of earth [km]
+w_E = 7.292115e-5       # Angular speed of earth [rad/s]
+f = 1/298.257223563     # Flattening
+J2 = 0.001082629821313  # Second Zonal Harmonic
 
 ###################################
 # Assignment 2 | Helper functions #
@@ -817,3 +822,310 @@ class orbit_tle:
     def get_orbit_frame(self):
         r_i, v_i = self.get_state()
         return orbit_frame_from_state(r_i, v_i)
+    
+###################################
+# Assignment 6 | Algos & Classes  #
+###################################
+
+# Functions
+
+def geocentric_from_xyz(rE):
+    """
+    Convert ECEF (Earth-Centered Earth-Fixed) Cartesian coordinates 
+    to geocentric radius, longitude, and geocentric latitude.
+    
+    This implements Step 1 of the ECEF → Geodetic coordinate conversion algorithm.
+    
+    Parameters
+    ----------
+    rE : np.ndarray
+        ECEF position vector [x, y, z]^T in meters.
+        Shape: (3,) or (3, 1)
+    
+    Returns
+    -------
+    r : float
+        Geocentric radius (distance from Earth's center) in meters.
+    longitude : float
+        Geocentric longitude in radians (-π to π).
+    latitude : float
+        Geocentric latitude in radians (-π/2 to π/2).
+    """
+    rE = np.asarray(rE).flatten()
+    if rE.shape != (3,):
+        raise ValueError("Input rE must be a 3-element vector [x, y, z]")
+
+    x, y, z = rE
+
+    r = np.linalg.norm(rE)                    
+    longitude = np.arctan2(y, x)                    
+    latitude = np.arctan2(z, np.sqrt(x**2 + y**2))
+
+    return r, longitude, latitude
+
+def geodetic_from_xyz(rE, tolerance = 1e-12, max_iter = 100):
+    """
+    Convert ECEF coordinates to geodetic coordinates (latitude, longitude, height).
+    
+    :param: x, y, z: ECEF coordinates in meters
+    :param: tolerance: Convergence tolerance for iteration
+    :param: max_iter: Maximum number of iterations
+    
+    :returns:
+        longitude_deg: Geodetic latitude in degrees
+        latitude_deg: Geodetic longitude in degrees
+        h: Ellipsoidal height in meters
+    """
+    rE = np.asarray(rE).flatten()
+    if rE.shape != (3,):
+        raise ValueError("Input rE must be a 3-element vector [x, y, z]")
+
+    x, y, z = rE
+
+    p = np.sqrt(x**2 + y**2)
+    longitude = np.arctan2(y, z)
+    latitude = np.arctan2(z, p)
+
+    latitude_d_n = latitude
+
+    for i in range(max_iter):
+        sin_lambda = np.sin(latitude_d_n)
+        N_n = R_E / np.sqrt(1 - (2*f - f**2) * sin_lambda**2)
+        
+        numerator = z + N_n * (2*f - f**2) * sin_lambda
+        latitude_next = np.arctan2(numerator, p)
+        
+        # Check convergence
+        if abs(latitude_next - latitude_d_n) < tolerance:
+            break
+        latitude_d_n = latitude_next
+    else:
+        print(f"Warning: Iteration did not converge after {max_iter} iterations")
+
+    N_n = R_E / np.sqrt(1 - (2*f - f**2) * np.sin(latitude_d_n)**2)
+    h = p / np.cos(latitude_d_n) - N_n
+    
+    # Convert to degrees
+    longitude_deg = np.degrees(longitude)
+    latitude_deg = np.degrees(latitude_d_n)
+    
+    return longitude_deg, latitude_deg, h
+
+def xyz_from_geodetic(longitude, latitude_d, h):
+    """
+    Convert geodetic coordinates (longitude, latitude, height) 
+    to ECEF (Earth-Centered Earth-Fixed) Cartesian coordinates.
+    
+    Parameters
+    ----------
+    longitude : float
+        Geodetic longitude in radians.
+    latitude_d : float
+        Geodetic latitude in radians.
+    h : float
+        Ellipsoidal height above the WGS84 ellipsoid in meters.
+    
+    Returns
+    -------
+    np.ndarray
+        ECEF position vector [x, y, z] in meters.
+    """
+    N = R_E / (np.sqrt(1 - (2*f-f**2) * (np.sin(latitude_d))**2))
+
+    return np.array ([(N + h)*np.cos(longitude)*np.cos(latitude_d), 
+                        (N + h)*np.sin(longitude)*np.cos(latitude_d),
+                        (N*(1 - f)**2 + h)*np.sin(latitude_d)
+                        ])
+
+def xyz_from_geocentric(longitude, latitude, r):
+    """
+    Convert geocentric coordinates (longitude, latitude, radius) 
+    to ECEF Cartesian coordinates.
+    
+    Parameters
+    ----------
+    longitude : float
+        Geocentric longitude in radians.
+    latitude : float
+        Geocentric latitude in radians.
+    r : float
+        Geocentric radius (distance from Earth's center) in meters.
+    
+    Returns
+    -------
+    np.ndarray
+        ECEF position vector [x, y, z] in meters.
+    """
+    return np.array([r*np.cos(longitude)*np.cos(latitude),
+                        r*np.sin(longitude)*np.cos(latitude), 
+                        r*np.sin(latitude)
+                        ])
+
+# Helper Function
+def eci_to_ecef(r_eci, t, w_E=w_E):
+
+    theta = w_E * t
+
+    R = np.array([
+        [np.cos(theta), np.sin(theta), 0],
+        [-np.sin(theta), np.cos(theta), 0],
+        [0, 0, 1]
+    ])
+
+    return R @ r_eci
+
+# Propagator class
+
+class orbit_pkepler():
+
+    def __init__(self, a, e, M_e, Omega, i, w, n_dot, n_ddot):
+
+        self.a = a
+        self.a0 = a
+        self.e = e
+        self.e0 = e
+        self.M_e = M_e
+        self.M_e0 = M_e
+        self.Omega = Omega
+        self.Omega0 = Omega
+        self.i = i
+        self.w = w
+        self.w0 = w
+        self.n_dot = n_dot
+        self.n_ddot = n_ddot
+
+        self.p = self.a0*(1 - self.e0**2)
+        self.n = np.sqrt(mu/self.a0**3)
+
+    def update(self, dt):
+        
+        self.a = self.a0 - ((2*self.a0)/(3*self.n)) * self.n_dot * dt
+
+        self.e = self.e0 - (2*(1 - self.e0)/(3*self.n)) * self.n_dot * dt
+
+        self.Omega = self.Omega0 - ((3*self.n*R_E**2*J2) / (2*self.p**2)) * np.cos(self.i) * dt
+
+        self.w = self.w0 + ((3*self.n*R_E**2*J2) / (4*self.p**2)) * (4 - 5*np.sin(self.i)**2) * dt
+
+        self.M_e = self.M_e0 + self.n*dt + (1/2)*self.n_dot * dt**2 + (1/6)*self.n_ddot * dt**3
+
+        self.M_e = self.M_e % (2*np.pi)
+
+        self.p = self.a * (1 - self.e**2)
+
+        self.n = np.sqrt(mu / self.a**3)
+
+    def propagate(self, dt):
+        self.update(dt)
+
+    def get_orbit_frame(self):
+        q_io = np.array([1, 0, 0, 0])
+        w_i_io = np.zeros(3)
+        return q_io, w_i_io, None
+
+    def state(self):
+
+        h = np.sqrt(mu * self.a * (1 - self.e**2))
+
+        E = eccentric_anomaly_from_mean_anomaly(
+            self.M_e,
+            self.e
+        )
+
+        theta = 2*np.arctan2(
+            np.sqrt(1+self.e)*np.sin(E/2),
+            np.sqrt(1-self.e)*np.cos(E/2)
+        )
+
+        r, v = state_from_orbit_params(
+            h,
+            self.e,
+            theta,
+            self.Omega,
+            self.i,
+            self.w
+        )   
+
+        return r, v
+
+    def get_state(self):
+
+        return self.state()
+    
+def main():
+
+    tle = su.read_TLE_file("Assignment5_TLE.txt")[0]
+
+    a = (mu / tle["n"]**2)**(1/3)
+
+    orbit = orbit_pkepler(
+        a=a,
+        e=tle["e"],
+        M_e=np.radians(tle["M_e"]),
+        Omega=np.radians(tle["Omega"]),
+        i=np.radians(tle["i"]),
+        w=np.radians(tle["w"]),
+        n_dot=tle["n_dot"],
+        n_ddot=tle["n_ddot"]
+    )
+
+    # Ground track propagation
+
+    dt = 2
+    t_end = 5731
+
+    lons = []
+    lats = []
+
+    t = 0
+
+    for _ in np.arange(0, t_end, dt):
+
+        orbit.update(dt)
+
+        r_eci, v = orbit.state()
+
+        r_ecef = eci_to_ecef(r_eci, t)
+
+        _, lon, lat = geocentric_from_xyz(r_ecef)
+
+        lons.append(lon)
+        lats.append(lat)
+
+        t += dt
+
+    pl.plot_ground_track(lons, lats, degrees=False)
+    #---
+
+    sim_config = {
+        't_0': 0,
+        't_e': 5731,
+        't_step': 2,
+        'speed_factor': 1,
+        'anim_dt': 0.04,
+        'scale_factor': 1000,
+        'visualise': True
+    }
+
+    J_matrix = np.array([
+        [0.00146519, 0.00001703, -0.00000633],
+        [0.00001703, 0.00151512, -0.00001598],
+        [-0.00000633, -0.00001598, 0.00146333]
+    ])
+
+    scenario = sl.Satellite(
+        q_ib=np.array([1, 0, 0, 0]),
+        w_b_ib=np.zeros(3),
+        J=J_matrix,
+        orbit=orbit,
+        substeps=50
+    )
+
+    sim.create_and_start_simulation(
+        sim_config,
+        scenario
+    )
+
+
+if __name__ == "__main__":
+    main()

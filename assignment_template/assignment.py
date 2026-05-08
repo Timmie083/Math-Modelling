@@ -55,13 +55,6 @@ class ScenarioAssignment(sim.BaseScenario):
         self.q_E = su.Quaternion([temp[0], 0, 0, temp[1]])
         #self.q_E = su.Quaternion()
 
-        # Data logging variables
-        #self.pos_plot = np.concatenate(([t], self.ri)) # Initialize the plot data
-
-        # Convert all energies to array
-        #self.orbit_energy_plot = np.concatenate(([t], [ol.get_orbit_energy_state(self.euler_x, self.m), ol.get_orbit_energy_state(self.leapfrog_x, self.m), ol.get_orbit_energy_state(self.verlet_x, self.m)]))
-
-
 
     def update(self, t, dt):
 
@@ -95,10 +88,6 @@ class ScenarioAssignment(sim.BaseScenario):
         temp = ol.polar2xyz(1, self.theta_E / 2) # Normalized XY from q_E
         self.q_E = su.Quaternion([temp[0], 0, 0, temp[1]])
 
-        # Log orbit data
-        #self.pos_plot = np.vstack((self.pos_plot, np.concatenate(([t], self.ri))))
-        #self.orbit_energy_plot = np.vstack((self.orbit_energy_plot, np.concatenate(([t], [ol.get_orbit_energy_state(self.euler_x, self.m), ol.get_orbit_energy_state(self.leapfrog_x, self.m), ol.get_orbit_energy_state(self.verlet_x, self.m)]))))
-
     def get(self):
         return [
             ['satellite', self.ri, self.q],
@@ -106,16 +95,6 @@ class ScenarioAssignment(sim.BaseScenario):
             ['earth', np.zeros(3), self.q_E],
             ['ECEF frame', np.zeros(3), self.q_E],
             ['ECI frame', np.zeros(3), su.Quaternion()]]
-
-    #def post_process(self, t, dt):
-        # Plot orbit of satellite
-        file = su.log_pos("assignment3_position", self.pos_plot)
-        self.pos_plot = None # Clear the data after its saved
-        pl.line_plot(file)
-
-        file = su.log_pos("assignment3_energy", self.orbit_energy_plot)
-        self.orbit_energy_plot = None  # Clear the data after its saved
-        pl.line_plot(file, labels=["Euler", "Leapfrog", "Verlet"])
 
 def main():
 

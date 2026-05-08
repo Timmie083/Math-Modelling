@@ -5,6 +5,8 @@ import numpy as np
 
 import matplotlib.image as image
 
+from PIL import Image
+
 def line_plot(file_path, labels=None):
     data = np.loadtxt(file_path)
     t = data[:,0]
@@ -98,3 +100,96 @@ def main(argv):
 
 if __name__ == "__main__":
     main(sys.argv)
+
+###################################
+# Assignment 6 | Algorithms       #
+###################################
+
+def plot_ground_track(longitude, latitude, degrees=True, earth_image="earth_grid.jpg", title="Ground Track"):
+    """
+    Plot satellite ground track.
+
+    Parameters
+    ----------
+    longitude : array-like
+        Longitudes.
+
+    latitude : array-like
+        Latitudes.
+
+    degrees : bool
+        If True, inputs are already in degrees.
+        Otherwise radians are assumed.
+
+    earth_image : str or None
+        Optional path to Earth texture image.
+
+    title : str
+        Plot title.
+    """
+
+    longitude = np.asarray(longitude)
+    latitude = np.asarray(latitude)
+
+    if not degrees:
+        longitude = np.degrees(longitude)
+        latitude = np.degrees(latitude)
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Optional Earth texture
+    if earth_image is not None:
+
+        try:
+            with Image.open(earth_image) as im:
+
+                ax.imshow(
+                    im,
+                    extent=(-180, 180, -90, 90),
+                    aspect='auto'
+                )
+
+        except FileNotFoundError:
+
+            print(f"Could not find image: {earth_image}")
+
+    # Detect longitude jumps
+    jumps = np.where(
+        np.abs(np.diff(longitude)) > 180
+    )[0]
+
+    start = 0
+
+    for idx in jumps:
+
+        ax.plot(
+            longitude[start:idx+1],
+            latitude[start:idx+1],
+            linewidth=2
+        )
+
+        start = idx + 1
+
+    # Final segment
+    ax.plot(
+        longitude[start:],
+        latitude[start:],
+        linewidth=2
+    )
+
+    # Formatting
+    ax.set_xlim(-180, 180)
+    ax.set_ylim(-90, 90)
+
+    ax.set_xlabel("Longitude [deg]")
+    ax.set_ylabel("Latitude [deg]")
+
+    ax.set_title(title)
+
+    ax.set_xticks(np.arange(-180, 181, 30))
+    ax.set_yticks(np.arange(-90, 91, 15))
+
+    ax.grid(True)
+
+    plt.tight_layout()
+    plt.show()
