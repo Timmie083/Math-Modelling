@@ -16,8 +16,8 @@ import plotter as pl
 mu = 398600.4418        # Standard gravitational parameter [km**3/s**-2]
 R_E = 6378.1363         # Radius of earth [km]
 w_E = 7.292115e-5       # Angular speed of earth [rad/s]
-f = 1/298.257223563     # Flattening
-J2 = 0.001082629821313  # Second Zonal Harmonic
+f = 1/298.257223563     # Flattening / Assignment 6
+J2 = 0.001082629821313  # Second Zonal Harmonic / Assignment 6
 
 ###################################
 # Assignment 2 | Helper functions #
@@ -878,7 +878,7 @@ def geodetic_from_xyz(rE, tolerance = 1e-12, max_iter = 100):
     x, y, z = rE
 
     p = np.sqrt(x**2 + y**2)
-    longitude = np.arctan2(y, z)
+    longitude = np.arctan2(y, x)
     latitude = np.arctan2(z, p)
 
     latitude_d_n = latitude
@@ -969,7 +969,341 @@ def eci_to_ecef(r_eci, t, w_E=w_E):
 
     return R @ r_eci
 
+import datetime as dt
+
+def datetime_to_julian_date(
+    year,
+    month,
+    day,
+    hour=0,
+    minute=0,
+    second=0
+):
+
+    if month <= 2:
+        year -= 1
+        month += 12
+
+    A = int(year / 100)
+
+    B = 2 - A + int(A / 4)
+
+    JD = (
+        int(365.25 * (year + 4716))
+        + int(30.6001 * (month + 1))
+        + day + B - 1524.5
+    )
+
+    JD += (
+        hour
+        + minute / 60
+        + second / 3600
+    ) / 24
+
+    return JD
+
+def tle_epoch_to_julian(epoch):
+    """
+    Convert TLE epoch format to Julian date.
+
+    Example:
+        24123.50000000
+
+    means:
+        year = 2024
+        day  = 123.5
+    """
+
+    year = int(epoch // 1000)
+
+    day_of_year = epoch - year * 1000
+
+    # NORAD rule
+    if year < 57:
+        year += 2000
+    else:
+        year += 1900
+
+    jan1 = dt.datetime(year, 1, 1)
+
+    epoch_datetime = jan1 + dt.timedelta(
+        days=day_of_year - 1
+    )
+
+    return datetime_to_julian_date(
+        epoch_datetime.year,
+        epoch_datetime.month,
+        epoch_datetime.day,
+        epoch_datetime.hour,
+        epoch_datetime.minute,
+        epoch_datetime.second
+    )
+
+def groundtrack_from_eci(r_eci, t):
+
+    r_ecef = eci_to_ecef(r_eci, t)
+
+    _, lon, lat = geocentric_from_xyz(r_ecef)
+
+    return lon, lat
+
 # Propagator class
 
 class orbit_pkepler:
-    
+
+    def __init__(self, tle):
+
+        # -----------------------------------------
+        # TLE PARAMETERS
+        # -----------------------------------------
+
+        self.name = tle["name"]
+
+        self.e = tle["e"]
+
+        self.i = tle["i"]
+
+        self.Omega = tle["Omega"]
+
+        self.w = tle["w"]
+
+        self.Me = tle["M_e"]
+
+        self.n_dot = tle["n_dot"]
+
+        self.n_ddot = tle["n_ddot"]
+
+        self.bstar = tle["bstar"]
+
+        # Mean motion from TLE [rad/s]
+        self.n = tle["n"]
+
+        # -----------------------------------------
+        # Compute semi-major axis from mean motion
+        # -----------------------------------------
+
+        self.a = (mu / self.n**2)**(1/3)
+
+        # Cartesian state
+        self.r = np.zeros(3)
+        self.v = np.zeros(3)
+
+        self.update_state()
+
+    # ==========================================================
+    # PROPAGATION
+    # ==========================================================
+
+    def propagate(self, dt):
+
+        # Previous values
+        a0 = self.a
+        e0 = self.e
+        Omega0 = self.Omega
+        w0 = self.w
+        Me0 = self.Me
+
+        # Semi-latus rectum
+        p = a0 * (1 - e0**2)
+
+        # Mean motion
+        n = np.sqrt(mu / a0**3)
+
+        # ------------------------------------------------------
+        # PKepler secular updates
+        # ------------------------------------------------------
+
+        self.a = (
+            a0
+            - (2 * a0 / (3 * n))
+            * self.n_dot
+            * dt
+        )
+
+        self.e = (
+            e0
+            - (2 * (1 - e0) / (3 * n))
+            * self.n_dot
+            * dt
+        )
+
+        self.Omega = (
+            Omega0
+            - (
+                3 * n * R_E**2 * J2
+                / (2 * p**2)
+            )
+            * np.cos(self.i)
+            * dt
+        )
+
+        self.w = (
+            w0
+            + (
+                3 * n * R_E**2 * J2
+                / (4 * p**2)
+            )
+            * (4 - 5 * np.sin(self.i)**2)
+            * dt
+        )
+
+        self.Me = (
+            Me0
+            + n * dt
+            + 0.5 * self.n_dot * dt**2
+            + (1/6) * self.n_ddot * dt**3
+        )
+
+        # Wrap anomaly
+        self.Me = np.mod(self.Me, 2*np.pi)
+
+        # Recompute mean motion
+        self.n = np.sqrt(mu / self.a**3)
+
+        # Update Cartesian state
+        self.update_state()
+
+    def propagate_time(self, total_dt, step=60):
+
+        N = int(abs(total_dt) / step)
+
+        dt = np.sign(total_dt) * step
+
+        for _ in range(N):
+            self.propagate(dt)
+
+        remainder = total_dt - N * dt
+
+        if abs(remainder) > 0:
+            self.propagate(remainder)
+
+    # ==========================================================
+    # KEPLER SOLVER
+    # ==========================================================
+
+    def solve_kepler(
+        self,
+        M,
+        e,
+        tol=1e-10,
+        max_iter=100
+    ):
+
+        E = M
+
+        for _ in range(max_iter):
+
+            f = E - e*np.sin(E) - M
+
+            fp = 1 - e*np.cos(E)
+
+            dE = -f / fp
+
+            E += dE
+
+            if abs(dE) < tol:
+                break
+
+        return E
+
+    # ==========================================================
+    # ELEMENTS -> STATE
+    # ==========================================================
+
+    def update_state(self):
+
+        E = self.solve_kepler(self.Me, self.e)
+
+        # True anomaly
+        nu = 2 * np.arctan2(
+            np.sqrt(1 + self.e) * np.sin(E/2),
+            np.sqrt(1 - self.e) * np.cos(E/2)
+        )
+
+        # Radius
+        r_mag = self.a * (
+            1 - self.e * np.cos(E)
+        )
+
+        # -----------------------------------------
+        # Perifocal frame
+        # -----------------------------------------
+
+        r_pf = np.array([
+            r_mag * np.cos(nu),
+            r_mag * np.sin(nu),
+            0
+        ])
+
+        p = self.a * (1 - self.e**2)
+
+        v_pf = np.sqrt(mu / p) * np.array([
+            -np.sin(nu),
+            self.e + np.cos(nu),
+            0
+        ])
+
+        # -----------------------------------------
+        # Rotation matrix
+        # -----------------------------------------
+
+        cO = np.cos(self.Omega)
+        sO = np.sin(self.Omega)
+
+        ci = np.cos(self.i)
+        si = np.sin(self.i)
+
+        cw = np.cos(self.w)
+        sw = np.sin(self.w)
+
+        R = np.array([
+            [
+                cO*cw - sO*sw*ci,
+                -cO*sw - sO*cw*ci,
+                sO*si
+            ],
+            [
+                sO*cw + cO*sw*ci,
+                -sO*sw + cO*cw*ci,
+                -cO*si
+            ],
+            [
+                sw*si,
+                cw*si,
+                ci
+            ]
+        ])
+
+        self.r = R @ r_pf
+
+        self.v = R @ v_pf
+
+    # ==========================================================
+    # ACCESSORS
+    # ==========================================================
+
+    def get_state(self):
+
+        return self.r, self.v
+
+    def get_orbit_frame(self):
+
+        r_hat = self.r / np.linalg.norm(self.r)
+
+        h = np.cross(self.r, self.v)
+
+        h_hat = h / np.linalg.norm(h)
+
+        t_hat = np.cross(h_hat, r_hat)
+
+        R_io = np.column_stack((
+            r_hat,
+            t_hat,
+            h_hat
+        ))
+
+        q_io = su.dcm_to_quaternion(R_io)
+
+        w_i_io = h / np.linalg.norm(self.r)**2
+
+        return q_io, w_i_io, R_io

@@ -3,6 +3,8 @@ import simutils as su
 import orbit_lib as ol
 import simulator as sim
 import math
+import datetime as dt
+import plotter as pl
 
 ###################################
 # Assignment 5 | Classes          # Assig 4 below
@@ -133,13 +135,8 @@ class RigidBody(sim.BaseScenario):
 class Satellite(sim.BaseScenario):
 
     def __init__(self, q_ib, w_b_ib, J, r=np.zeros(3), v=np.zeros(3), m=1, orbit=None, substeps=50):
-        
-        """ Assignment 4 __init__
-        self.rb = RigidBody()
 
-        self.k1 = 2
-        self.k2 = 1
-        """
+        self.groundtrack = []
 
         # Assignement 5.3 modification
         
@@ -147,53 +144,38 @@ class Satellite(sim.BaseScenario):
 
         if self.orbit is not None:
             r, v = self.orbit.get_state()
+        else:
+            r = np.zeros(3)
+            v = np.zeros(3)
 
         # Rigid body
         self.body = RigidBody(r, v, m, q_ib, w_b_ib, J)
 
         # Substepping
-        self.N = substeps + 1
+        self.N = substeps
 
         # ADCS
         self.ADCS = ADCS_PD(1e-5, 2e-4, 0, J)
 
-    """ Assignment 4 init
-    def init(self, t):
-        self.rb.init(t)
+        self.theta_E = 0
 
-        # Override initial conditions
-        self.rb.q = np.array([1, 0, 0, 0])
-        self.rb.omega = np.array([0, 0, 0])
-
-        self.rb.J = np.diag([0.5, 0.5, 0.5])
-
-        self.q_d = np.array([0.5, 0.5, 0.5, 0.5])
-        self.omega_d = np.array([0.2, -0.1, 0.05])
-    """
+        self.q_E = su.Quaternion([1, 0, 0, 0])
 
     def update(self, t_k, t_step):
 
-        """ Assignment 4 version control
-        q = self.rb.q
-        omega = self.rb.omega
+        self.theta_E = t_k * ol.w_E
 
-        # Quaternion error
-        q_e = su.quat_mult(su.quat_conj(self.q_d), q)
-        if q_e[0] < 0:
-            q_e = -q_e
+        temp = ol.polar2xyz(
+            1,
+            self.theta_E / 2
+        )
 
-        q_v = q_e[1:4]
-
-        R_e = su.quaternion_to_dcm(q_e)
-        omega_d_body = R_e @ self.omega_d
-
-        omega_err = omega - omega_d_body
-
-        tau = -self.k1 * q_v - self.k2 * omega_err
-
-        self.rb.tau = tau
-        self.rb.update(t, dt)
-        """
+        self.q_E = su.Quaternion([
+            temp[0],
+            0,
+            0,
+            temp[1]
+        ])
 
         # Assignement 5.3 Modification
 
@@ -202,6 +184,26 @@ class Satellite(sim.BaseScenario):
         else:
             self.update_with_dynamics(t_k, t_step)
 
+        # ECI position
+        r_eci = self.body.r
+
+        # Convert to ECEF
+        r_ecef = ol.eci_to_ecef(
+            r_eci,
+            t_k
+        )
+
+        # Convert to geocentric coordinates
+        _, lon, lat = ol.geocentric_from_xyz(
+            r_ecef
+        )
+
+        # Store
+        self.groundtrack.append([
+            t_k,
+            lon,
+            lat
+        ])
 
     # With orbit
 
@@ -211,22 +213,67 @@ class Satellite(sim.BaseScenario):
 
         for _ in range(self.N):
 
+            # -----------------------------------------
             # Propagate orbit
+            # -----------------------------------------
+
             self.orbit.propagate(dt)
 
-            # Get orbit frame
-            q_io, w_i_io, _ = self.orbit.get_orbit_frame()
+            # Update rigid-body translational state
+            self.body.r, self.body.v = (
+                self.orbit.get_state()
+            )
 
-            # Get body state
+            # -----------------------------------------
+            # Ground track logging
+            # -----------------------------------------
+
+            r_ecef = ol.eci_to_ecef(
+                self.body.r,
+                t_k
+            )
+
+            _, lon, lat = ol.geocentric_from_xyz(
+                r_ecef
+            )
+
+            self.groundtrack.append([
+                t_k,
+                lon,
+                lat
+            ])
+
+            # -----------------------------------------
+            # Orbit frame
+            # -----------------------------------------
+
+            q_io, w_i_io, _ = (
+                self.orbit.get_orbit_frame()
+            )
+
+            # -----------------------------------------
+            # ADCS
+            # -----------------------------------------
+
             q_ib = self.body.q
+
             w_b_ib = self.body.omega
 
-            # ADCS
-            self.ADCS.update(q_ib, w_b_ib, q_io, w_i_io)
+            self.ADCS.update(
+                q_ib,
+                w_b_ib,
+                q_io,
+                w_i_io
+            )
 
-            self.body.tau = self.ADCS.get_control()
+            self.body.tau = (
+                self.ADCS.get_control()
+            )
 
-            # Update rigid body
+            # -----------------------------------------
+            # Rigid body update
+            # -----------------------------------------
+
             self.body.update(t_k, dt)
 
     # No orbit
@@ -262,9 +309,14 @@ class Satellite(sim.BaseScenario):
         
     def get(self):
         return [
+            ['earth', np.zeros(3), self.q_E],
+
+            ['ECEF frame', np.zeros(3), self.q_E],
+
+            ['ECI frame', np.zeros(3), su.Quaternion()],
+
             ['satellite', self.body.r, self.body.q],
-        ]
-    
+]
 
 def main():
 
@@ -284,14 +336,58 @@ def main():
         [-0.00000633, -0.00001598, 0.00146333]
     ])
 
-    orbit = ol.orbit_tle(
-        n=15.07529327671380 * 2*np.pi / (24*3600),
-        e=0.0034704,
-        M_e=np.deg2rad(323.2390),
-        O=np.deg2rad(81.8923),
-        i=np.deg2rad(97.7929),
-        w=np.deg2rad(37.1228)
+    # ======================================================
+    # READ TLE
+    # ======================================================
+
+    tle_list = su.read_TLE_file(
+        "Assignment5_TLE.txt"
     )
+
+    tle = tle_list[0]
+
+    # ======================================================
+    # CREATE ORBIT
+    # ======================================================
+
+    orbit = ol.orbit_pkepler(tle)
+
+    # ======================================================
+    # CURRENT JULIAN DATE
+    # ======================================================
+
+    tnow = dt.datetime.utcnow()
+
+    JD_now = ol.datetime_to_julian_date(
+        tnow.year,
+        tnow.month,
+        tnow.day,
+        tnow.hour,
+        tnow.minute,
+        tnow.second
+    )
+
+    # ======================================================
+    # TLE EPOCH JULIAN DATE
+    # ======================================================
+
+    JD_epoch = ol.tle_epoch_to_julian(
+        tle["epoch"]
+    )
+
+    # ======================================================
+    # PROPAGATE FROM EPOCH -> NOW
+    # ======================================================
+
+    delta_t = (
+        JD_now - JD_epoch
+    ) * 86400
+
+    orbit.propagate_time(delta_t)
+
+    # ======================================================
+    # SATELLITE
+    # ======================================================
 
     scenario = Satellite(
         q_ib=np.array([1, 0, 0, 0]),
@@ -301,7 +397,27 @@ def main():
         substeps=50
     )
 
-    sim.create_and_start_simulation(sim_config, scenario)
+    sim.create_and_start_simulation(
+        sim_config,
+        scenario
+    )
+
+    np.savetxt(
+        "groundtrack.txt",
+        np.array(scenario.groundtrack)
+    )
 
 if __name__ == "__main__":
     main()
+
+    data = np.loadtxt("groundtrack.txt")
+
+    t, lon, lat = data.T
+
+    pl.plot_ground_track(
+        lon,
+        lat,
+        degrees=False
+    )
+
+    
