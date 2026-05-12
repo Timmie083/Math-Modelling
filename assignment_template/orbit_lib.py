@@ -957,9 +957,9 @@ def xyz_from_geocentric(longitude, latitude, r):
                         ])
 
 # Helper Function
-def eci_to_ecef(r_eci, t, w_E=w_E):
+def eci_to_ecef(r_eci, theta_E, w_E=w_E):
 
-    theta = w_E * t
+    theta = theta_E
 
     R = np.array([
         [np.cos(theta), np.sin(theta), 0],

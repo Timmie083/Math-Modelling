@@ -219,7 +219,7 @@ class Satellite(sim.BaseScenario):
         r_eci = self.body.r
 
         # Convert to ECEF
-        r_ecef = ol.eci_to_ecef(r_eci, t_k)
+        r_ecef = ol.eci_to_ecef(r_eci, self.theta_E)
 
         # Convert to geocentric coordinates
         _, lon, lat = ol.geocentric_from_xyz(r_ecef)
@@ -240,7 +240,7 @@ class Satellite(sim.BaseScenario):
             # Update rigid-body translational state
             self.body.r, self.body.v = (self.orbit.get_state())
 
-            r_ecef = ol.eci_to_ecef(self.body.r, t_k)
+            r_ecef = ol.eci_to_ecef(self.body.r, self.theta_E)
 
             _, lon, lat = ol.geocentric_from_xyz(r_ecef)
 
@@ -380,14 +380,14 @@ if __name__ == "__main__":
 
 # Sensor classes
 
-class gyro:
+#class gyro:
 
-class magnetometer:
+#class magnetometer:
 
-class fine_sun_sensor:
+#class fine_sun_sensor:
 
 # Attitude determination classes
 
-class TRIAD:
+#class TRIAD:
 
-class Davenport:
+#class Davenport:
