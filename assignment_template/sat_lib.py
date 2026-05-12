@@ -83,15 +83,44 @@ class RigidBody(sim.BaseScenario):
         self.q = self.q / np.linalg.norm(self.q)
 
     def f(self, t, x):
+        """
+        Compute spacecraft rotational and translational state derivatives.
 
+        Parameters
+        ----------
+        t : float
+            Simulation time [s].
+
+        x : numpy.ndarray
+            State vector:
+
+            x = [q0, q1, q2, q3,
+                wx, wy, wz,
+                rx, ry, rz,
+                vx, vy, vz]
+
+            where:
+            - q : attitude quaternion (scalar-first)
+            - omega : angular velocity [rad/s]
+            - r : position vector [km]
+            - v : velocity vector [km/s]
+
+        Returns
+        -------
+        x_dot : numpy.ndarray
+            Time derivative of the state vector.
+        """
+
+        # State extraction
         q = x[0:4]
         omega = x[4:7]
         r = x[7:10]
         v = x[10:13]
 
-        # ROTATION
-
+        # -------------------------
         # Quaternion kinematics
+        # -------------------------
+
         wx, wy, wz = omega
 
         Omega = np.array([
@@ -103,9 +132,18 @@ class RigidBody(sim.BaseScenario):
 
         q_dot = 0.5 * Omega @ q
 
-        # Rigid body dynamics
+        # -------------------------
+        # Rotational dynamics
+        # -------------------------
 
-        omega_dot = np.linalg.solve(self.J, self.tau - np.cross(omega, self.J @ omega))
+        omega_dot = np.linalg.solve(
+            self.J,
+            self.tau - np.cross(omega, self.J @ omega)
+        )
+
+        # -------------------------
+        # Translational dynamics
+        # -------------------------
 
         r_dot = v
 
@@ -113,7 +151,6 @@ class RigidBody(sim.BaseScenario):
 
         a_gravity = -ol.mu * r / r_norm**3
 
-        # External force contribution
         a_force = self.F / self.m
 
         v_dot = a_gravity + a_force
@@ -122,9 +159,7 @@ class RigidBody(sim.BaseScenario):
     
     def get(self):
         quat = su.Quaternion(self.q)
-        return [
-            ['satellite', self.r, quat],
-    ]
+        return [['satellite', self.r, quat],]
 
 class Satellite(sim.BaseScenario):
 
@@ -184,22 +219,13 @@ class Satellite(sim.BaseScenario):
         r_eci = self.body.r
 
         # Convert to ECEF
-        r_ecef = ol.eci_to_ecef(
-            r_eci,
-            t_k
-        )
+        r_ecef = ol.eci_to_ecef(r_eci, t_k)
 
         # Convert to geocentric coordinates
-        _, lon, lat = ol.geocentric_from_xyz(
-            r_ecef
-        )
+        _, lon, lat = ol.geocentric_from_xyz(r_ecef)
 
         # Store
-        self.groundtrack.append([
-            t_k,
-            lon,
-            lat
-        ])
+        self.groundtrack.append([t_k, lon, lat])
 
     # With orbit
 
@@ -348,4 +374,20 @@ if __name__ == "__main__":
         degrees=False
     )
 
-    
+###################################
+# Assignment 7 | Classes          #
+###################################
+
+# Sensor classes
+
+class gyro:
+
+class magnetometer:
+
+class fine_sun_sensor:
+
+# Attitude determination classes
+
+class TRIAD:
+
+class Davenport:

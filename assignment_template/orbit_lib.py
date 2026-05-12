@@ -1307,3 +1307,120 @@ class orbit_pkepler:
         w_i_io = h / np.linalg.norm(self.r)**2
 
         return q_io, w_i_io, R_io
+    
+###################################
+# Assignment 7 | Algos            #
+###################################
+
+def magnetic_field_dipole(ri, JD):
+    """
+    Compute the Earth's magnetic field vector using a simple dipole model.
+
+    Parameters
+    ----------
+    ri : numpy.ndarray
+        Spacecraft position vector in the Earth-centered inertial (ECI)
+        frame, expressed in kilometers. Expected shape is (3,1) or (3,).
+
+    JD : float
+        Julian Date. Included for interface consistency, although it is
+        not used in this simplified dipole model.
+
+    Returns
+    -------
+    Bi : numpy.ndarray
+        Magnetic field vector at the spacecraft position in Tesla,
+        expressed in the ECI frame.
+    """
+
+    m = 7.767e6         # Earth's magnetic dipole strength [T·km^3]
+    
+    phi_deg = -72.76    # Magnetic north pole longitude [degrees]
+    
+    lambda_d_deg = 9.21 # Magnetic north pole geodetic latitude [degrees]
+    
+    # Convert angles to radians
+    phi = np.radians(phi_deg)
+    lambda_d = np.radians(lambda_d_deg)
+
+    # Convert geodetic latitude to geocentric latitude
+    lambda_gc = np.arctan((1 - f)**2*np.tan(lambda_d))
+
+    # Unit vector of Earth's magnetic dipole axis
+    temp = np.array([
+        [np.cos(phi) * np.cos(lambda_gc)],
+        [np.sin(phi) * np.cos(lambda_gc)],
+        [np.sin(lambda_gc)]
+    ])
+    
+    mi = m * R_E * temp         # Earth's magnetic dipole moment vector
+    
+    ri = np.reshape(ri, (3, 1)) # Ensure ri is column vector
+
+    r_norm = np.linalg.norm(ri) # Magnitude of position vector
+
+    # Dipole magnetic field model
+
+    dot_product = np.dot(mi.T, ri).item()
+
+    Bi = ((3*ri*dot_product - (r_norm**2) * mi)/(r_norm**5))
+
+    return Bi
+
+def sun_vector(JD):
+    """
+    Compute the Sun position vector in the Earth-centered equatorial frame.
+
+    Parameters
+    ----------
+    JD : float
+        Julian Date at which the Sun vector is evaluated.
+
+    Returns
+    -------
+    si : numpy.ndarray
+        3x1 Sun position vector in kilometers, expressed in the
+        Earth-centered equatorial coordinate system.
+    """
+
+    # Julian centuries since J2000
+    T = (JD - 2451545.0) / 36525.0
+
+    # Mean longitude of the Sun (degrees)
+    lambda_m = 280.46 + 36000.771*T
+    lambda_m = lambda_m % 360.0
+
+    # Mean anomaly of the Sun (degrees)
+    M = 357.5291092 + 35999.05034*T
+    M = M % 360.0
+
+    # Convert anomaly to radians for trigonometric functions
+    M_rad = math.radians(M)
+
+    # Obliquity of the ecliptic (radians)
+    epsilon = 23.439291 - 0.0130042*T
+    epsilon = math.radians(epsilon)
+
+    # Apparent ecliptic longitude of the Sun (degrees)
+    lambda_e = (lambda_m + 1.914666471*np.sin(M_rad) + 0.019994643*np.sin(2*M_rad))
+
+    # Convert longitude to radians
+    lambda_e = math.radians(lambda_e)
+
+    # Astronomical Unit in kilometers
+    AU = 149597870
+
+    # Distance from Earth to Sun (km)
+    r = AU*(1.000140612 - 0.016708617*np.cos(M_rad) - 0.000139589*np.cos(2*M_rad)
+    )
+
+    # Sun vector components
+    temp = np.array([
+        [np.cos(lambda_e)],
+        [np.cos(epsilon) * np.sin(lambda_e)],
+        [np.sin(epsilon) * np.sin(lambda_e)]
+    ])
+
+    si = r*temp
+
+    return si
