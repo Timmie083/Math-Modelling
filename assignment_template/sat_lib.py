@@ -190,7 +190,7 @@ class Satellite(sim.BaseScenario):
 
         print(tle)
 
-        epoch = tle[0]["epoch"]
+        
 
         JD = ol.epoch_to_julian_date(epoch)
 
@@ -380,14 +380,303 @@ if __name__ == "__main__":
 
 # Sensor classes
 
-#class gyro:
+class gyro:
 
-#class magnetometer:
+    def __init__(self, q_bs=su.Quaternion(), p_b=np.array([0, 0, 0]), z0=np.zeros(3), mu=0.0, Q=0.1, params=None):
 
-#class fine_sun_sensor:
+        self.q_bs = q_bs            # sensor orientation wrt body
+        self.p = p_b                # sensor position
+        self.mu = mu                # mean noise
+        self.Q = Q                  # variance
+        self.z = z0                 # current measurement
+
+        self.b_g = np.zeros(3)      # gyro bias
+        
+        self.Q_bias = 0             # optional bias random walk variance
+
+        if params is not None:
+            if "b_g" in params:
+                self.b_g = params["b_g"]
+
+            if "Q_bias" in params:
+                self.Q_bias = params["Q_bias"]
+
+
+    def update(self, t, t_step, q_ib, w_b_ib, r_i, v_i):
+
+        # bias random walk
+        bias_noise = np.random.normal(loc=0.0, scale=np.sqrt(self.Q_bias), size=3)
+
+        self.b_g += bias_noise * t_step
+
+        # rotate body angular velocity into sensor frame
+        w_s = self.q_bs.conjugated().rotate(w_b_ib)
+
+        # measurement noise
+        noise = np.random.normal(loc=self.mu, scale=np.sqrt(self.Q), size=3)
+
+        # gyro output
+        self.z = w_s + self.b_g + noise
+
+    def output(self, body_frame=False):
+
+        if body_frame:
+            # rotate measurement back to body frame
+            return self.q_bs.rotate(self.z)
+
+        return self.z
+    
+class magnetometer:
+
+    def __init__(self, q_bs=su.Quaternion(), p_b=np.array([0, 0, 0]), z0=np.zeros(3), mu=0, Q=0.4, params=None):
+
+        self.q_bs = q_bs
+        self.p = p_b
+
+        self.mu = mu
+        self.Q = Q
+
+        self.z = z0
+
+        # hard iron bias
+        self.b_B = np.zeros(3)
+
+        # soft iron matrix
+        self.M_B = np.eye(3)
+
+        if params is not None:
+
+            if "b_B" in params:
+                self.b_B = params["b_B"]
+
+            if "M_B" in params:
+                self.M_B = params["M_B"]
+
+        tle = su.read_TLE_file("Assignment5_TLE.txt", satellite_name=None)
+        epoch = tle[0]["epoch"]
+        self.JD0 = ol.epoch_to_julian_date(epoch)
+
+    def update(self, t, t_step, q_ib, w_b_ib, r_i, v_i):
+
+        # Convert simulation time to Julian Date
+        # Replace JD0 with your simulation start Julian date
+        JD = self.JD0 + t / 86400.0
+
+        # Earth magnetic field in inertial frame
+        B_i = ol.magnetic_field_dipole(r_i, JD)
+
+        # Quaternion from inertial -> sensor frame
+        q_is = q_ib @ self.q_bs
+
+        # Rotate magnetic field into sensor frame
+        B_s = q_is.conjugated().rotate(B_i)
+
+        # Add gaussian noise
+        noise = np.random.normal(loc=self.mu, scale=np.sqrt(self.Q), size=3)
+
+        # Full measurement model
+        self.z = self.M_B @ B_s + self.b_B + noise
+
+    def output(self, body_frame=False):
+
+        if body_frame:
+            return self.q_bs.rotate(self.z)
+
+        return self.z
+
+class fine_sun_sensor:
+
+    def __init__(self, q_bs=su.Quaternion(), p_b=np.array([0, 0, 0]), z0=np.zeros(3), mu=0, Q=0.2, params=None):
+
+        self.q_bs = q_bs
+        self.p = p_b
+
+        self.mu = mu
+        self.Q = Q
+
+        self.z = z0
+
+        # field of view
+        self.alpha = np.pi
+
+        if params is not None:
+
+            if "alpha" in params:
+                self.alpha = params["alpha"]
+
+        tle = su.read_TLE_file("Assignment5_TLE.txt", satellite_name=None)
+        epoch = tle[0]["epoch"]
+        self.JD0 = ol.epoch_to_julian_date(epoch)
+
+
+    def update(self, t, t_step, q_ib, w_b_ib, r_i, v_i):
+
+        # simulation JD
+        JD = self.JD0 + t / 86400.0
+
+        # Sun vector in inertial frame
+        s_i = ol.sun_vector(JD)
+
+        # normalize
+        s_i_hat = s_i / np.linalg.norm(s_i)
+
+        # inertial -> sensor quaternion
+        q_is = q_ib @ self.q_bs
+
+        # rotate sun vector into sensor frame
+        s_s = q_is.conjugated().rotate(s_i_hat)
+
+        x, y, z = s_s
+
+        # angle from sensor boresight (+z axis)
+        theta = np.arctan2(np.sqrt(x**2 + y**2), z)
+
+        # check field of view
+        if z > 0 and theta < self.alpha / 2:
+
+            noise = np.random.normal(loc=self.mu, scale=np.sqrt(self.Q), size=3)
+
+            self.z = s_s + noise
+
+        else:
+
+            # sun not visible
+            self.z = np.zeros(3)
+
+    def output(self, body_frame=False):
+
+        if body_frame:
+            return self.q_bs.rotate(self.z)
+
+        return self.z
 
 # Attitude determination classes
 
-#class TRIAD:
+class TRIAD:
 
-#class Davenport:
+    def __init__(self, params=None):
+
+        self.params = params
+
+
+    def estimate_attitude(self, M_B, M_A):
+        """
+        M_B : list of vectors in body frame
+        M_A : list of vectors in reference/orbital frame
+
+        Returns:
+            q_BA : quaternion rotating A -> B
+        """
+        # use first two vectors
+        a_b = M_B[0]
+        b_b = M_B[1]
+
+        a_a = M_A[0]
+        b_a = M_A[1]
+
+        # normalize inputs
+        a_b = a_b / np.linalg.norm(a_b)
+        b_b = b_b / np.linalg.norm(b_b)
+
+        a_a = a_a / np.linalg.norm(a_a)
+        b_a = b_a / np.linalg.norm(b_a)
+
+        # Construct TRIAD basis in frame A
+
+        t1_a = a_a
+
+        t2_a = np.cross(t1_a, b_a)
+        t2_a = t2_a / np.linalg.norm(t2_a)
+
+        t3_a = np.cross(t2_a, t1_a)
+
+        # Construct TRIAD basis in frame B
+
+        t1_b = a_b
+
+        t2_b = np.cross(t1_b, b_b)
+        t2_b = t2_b / np.linalg.norm(t2_b)
+
+        t3_b = np.cross(t2_b, t1_b)
+
+        # Build rotation matrices
+
+        T_A = np.column_stack((t1_a, t2_a, t3_a))
+        T_B = np.column_stack((t1_b, t2_b, t3_b))
+
+        # Rotation from A -> B
+
+        R_BA = T_B @ T_A.T
+
+        # Convert to quaternion
+
+        q_BA = su.dcm_to_quaternion(R_BA)
+
+        return q_BA
+
+class Davenport:
+
+    def __init__(self, params=None):
+        self.params = params
+
+    def estimate_attitude(self, M_B, M_A, weights=None):
+        """
+        Davenport q-method attitude estimation.
+
+        Args:
+            M_B : list of vectors in body frame (u_b^i)
+            M_A : list of vectors in reference frame (u_o^i)
+            weights : list of weights a_i (optional). If None, uses uniform weights.
+
+        Returns:
+            q_bo : quaternion corresponding to optimal attitude estimate
+        """
+
+        N = len(M_B)
+
+        M_B = [np.asarray(v, dtype=float) for v in M_B]
+        M_A = [np.asarray(v, dtype=float) for v in M_A]
+
+        # normalize input vectors (important for Wahba problem formulation)
+        M_B = [v / np.linalg.norm(v) for v in M_B]
+        M_A = [v / np.linalg.norm(v) for v in M_A]
+
+        # set weights
+        if weights is None:
+            weights = np.ones(N) / N
+        else:
+            weights = np.asarray(weights, dtype=float)
+
+        # initialize terms
+        lam0 = np.sum(weights)
+        B = np.zeros((3, 3))
+        z = np.zeros(3)
+
+        # compute B and z
+        for i in range(N):
+            u_b = M_B[i].reshape(3, 1)   # column vector
+            u_o = M_A[i].reshape(1, 3)   # row vector
+
+            B += weights[i] * (u_b @ u_o)
+            z += weights[i] * np.cross(M_B[i], M_A[i])
+
+        # Davenport K matrix
+        trB = np.trace(B)
+
+        K = np.zeros((4, 4))
+        K[0, 0] = trB
+        K[0, 1:] = z
+        K[1:, 0] = z
+        K[1:, 1:] = B + B.T - trB * np.eye(3)
+
+        # eigen decomposition
+        evals, evecs = np.linalg.eig(K)
+
+        # dominant eigenvector (largest eigenvalue)
+        max_idx = np.argmax(evals)
+        q_bo = evecs[:, max_idx]
+
+        # normalize quaternion
+        q_bo = q_bo / np.linalg.norm(q_bo)
+
+        return q_bo

@@ -329,7 +329,7 @@ def dcm_to_quaternion(R):
     :return: Quaternion vector [q0, q1, q2, q3]
     """
     q = np.zeros(4)
-    trR = np.linalg.trace(R)
+    trR = np.trace(R)
     if trR > 0:
         q[0] = 0.5 * np.sqrt(1+trR)
         q[1] = 1/(4 * q[0]) * (R[1,2]-R[2,1])
